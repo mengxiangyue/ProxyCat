@@ -13,8 +13,13 @@ import NIOTLS
 import NIOSSL
 
 final class HTTPHeadHandler {
-    private var upgradeState: State
+    private var upgradeState: State {
+        didSet {
+            print("upgradeState->\(self.upgradeState)")
+        }
+    }
     private var logger: Logger
+    private var proxyType = ProxyType.unknown
     
     init(logger: Logger) {
         self.upgradeState = .idle
@@ -26,7 +31,7 @@ extension HTTPHeadHandler {
     fileprivate enum State {
         case idle
         case beganConnectingToTargetServer
-        case awaitingReceiveSourceClientEnd(targetServerChannel: Channel)
+        case awaitingReceiveSourceClientEnd(targetServerChannel: Channel?)
         case awaitingTargetServerConnection(pendingBytes: [NIOAny])
         case upgradeComplete(pendingBytes: [NIOAny])
         case upgradeFailed
@@ -38,24 +43,7 @@ extension HTTPHeadHandler: ChannelInboundHandler {
     typealias OutboundOut = HTTPServerResponsePart
     
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
-//        let requestPart = self.unwrapInboundIn(data)
-//        switch requestPart {
-//        case .head(let head):
-//            if head.method == .CONNECT {
-//                let headers = HTTPHeaders([("Content-Length", "0")])
-//                let head = HTTPResponseHead(version: .init(major: 1, minor: 1), status: .ok, headers: headers)
-//                context.write(self.wrapOutboundOut(.head(head)), promise: nil)
-//                context.writeAndFlush(self.wrapOutboundOut(.end(nil)), promise: nil)
-//
-//                do {
-//                    try self.setupHttpsHandler(context: context)
-//                } catch let error {
-//                    self.logger.error("setup failed")
-//                }
-//            }
-//        default:
-//            break
-//        }
+        print("channelRead->\(self.unwrapInboundIn(data))")
         switch self.upgradeState {
         case .idle:
             self.handleInitialMessage(context: context, data: self.unwrapInboundIn(data))
@@ -68,13 +56,17 @@ extension HTTPHeadHandler: ChannelInboundHandler {
             }
 
         case .awaitingReceiveSourceClientEnd(let targetServerChannel):
-            if case .end = self.unwrapInboundIn(data) {
-                // Upgrade has completed!
-                self.upgradeState = .upgradeComplete(pendingBytes: [])
-                self.removeDecoder(context: context)
-                self.glue(targetServerChannel, context: context)
+            if case .end = self.unwrapInboundIn(data), case .https(let isTransprent) = proxyType  {
+                if isTransprent {
+                    self.upgradeState = .upgradeComplete(pendingBytes: [])
+                    self.removeDecoder(context: context)
+                    if let targetServerChannel = targetServerChannel {
+                        self.glue(targetServerChannel, context: context)
+                    }
+                } else {
+                    self.setupUnwrapHttpsHandlers(context: context)
+                } 
             }
-
         case .awaitingTargetServerConnection(var pendingBytes):
             // We've seen end, this must not be HTTP anymore. Danger, Will Robinson! Do not unwrap.
             self.upgradeState = .awaitingTargetServerConnection(pendingBytes: [])
@@ -100,19 +92,24 @@ extension HTTPHeadHandler: ChannelInboundHandler {
         }
 
         self.logger.info("\(head.method) \(head.uri) \(head.version)")
-
-        guard head.method == .CONNECT else {
-            self.logger.error("Invalid HTTP method: \(head.method)")
-            self.httpErrorAndClose(context: context)
-            return
+        
+        switch head.method {
+        case .CONNECT: // https over http, in order to create a tunel
+            self.logger.info("Receive CONNECT request")
+            let components = head.uri.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+            let host = components.first!  // There will always be a first.
+            let port = components.last.flatMap { Int($0, radix: 10) } ?? 80  // Port 80 if not specified
+            if ["www.baidu.com"].contains(host) { // transprent https
+                self.upgradeState = .beganConnectingToTargetServer
+                self.proxyType = .https(isTransparent: true)
+                self.connectTo(host: String(host), port: port, context: context)
+            } else { // unwrap https request
+                self.proxyType = .https(isTransparent: false)
+                self.upgradeState = .awaitingReceiveSourceClientEnd(targetServerChannel: nil)
+            }
+        default:
+            break
         }
-
-        let components = head.uri.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
-        let host = components.first!  // There will always be a first.
-        let port = components.last.flatMap { Int($0, radix: 10) } ?? 80  // Port 80 if not specified
-
-        self.upgradeState = .beganConnectingToTargetServer
-        self.connectTo(host: String(host), port: port, context: context)
     }
     
     private func connectTo(host: String, port: Int, context: ChannelHandlerContext) {
@@ -142,7 +139,7 @@ extension HTTPHeadHandler: ChannelInboundHandler {
 
         case .awaitingReceiveSourceClientEnd(let targetServerChannel):
             // This case is a logic error, close already connected peer channel.
-            targetServerChannel.close(mode: .all, promise: nil)
+            targetServerChannel?.close(mode: .all, promise: nil)
             context.close(promise: nil)
 
         case .idle, .upgradeFailed, .upgradeComplete:
@@ -161,7 +158,7 @@ extension HTTPHeadHandler: ChannelInboundHandler {
 
         case .awaitingReceiveSourceClientEnd(let targetServerChannel):
             // This case is a logic error, close already connected peer channel.
-            targetServerChannel.close(mode: .all, promise: nil)
+            targetServerChannel?.close(mode: .all, promise: nil)
             context.close(promise: nil)
 
         case .idle, .upgradeFailed, .upgradeComplete:
@@ -186,13 +183,7 @@ extension HTTPHeadHandler: ChannelInboundHandler {
     private func glue(_ peerChannel: Channel, context: ChannelHandlerContext) {
         self.logger.debug("Gluing together \(ObjectIdentifier(context.channel)) and \(ObjectIdentifier(peerChannel))")
 
-        // Ok, upgrade has completed! We now need to begin the upgrade process.
-        // First, send the 200 message.
-        // This content-length header is MUST NOT, but we need to workaround NIO's insistence that we set one.
-        let headers = HTTPHeaders([("Content-Length", "0")])
-        let head = HTTPResponseHead(version: .init(major: 1, minor: 1), status: .ok, headers: headers)
-        context.write(self.wrapOutboundOut(.head(head)), promise: nil)
-        context.writeAndFlush(self.wrapOutboundOut(.end(nil)), promise: nil)
+        sendUpgradeSuccessResponse(context: context)
 
         // Now remove the HTTP encoder.
         self.removeEncoder(context: context)
@@ -211,22 +202,32 @@ extension HTTPHeadHandler: ChannelInboundHandler {
         }
     }
     
-    private func setupHttpsHandler(context: ChannelHandlerContext) throws {
-        let certificateChain = try NIOSSLCertificate.fromPEMFile("/Users/xiangyue/Documents/github-repo/swift-nio-ssl/ssl/4/server.pem")
-        let sslContext = try NIOSSLContext(configuration: TLSConfiguration.makeServerConfiguration(
-            certificateChain: certificateChain.map { .certificate($0) },
-            privateKey: .file("/Users/xiangyue/Documents/github-repo/swift-nio-ssl/ssl/4/server.key.pem"))
-        )
+    private func setupUnwrapHttpsHandlers(context: ChannelHandlerContext) {
+        self.sendUpgradeSuccessResponse(context: context)
+        self.logger.debug("setup unwrap https handler")
+        let certificateChain: [NIOSSLCertificate]
+        let sslContext: NIOSSLContext
+        do {
+            certificateChain = try NIOSSLCertificate.fromPEMFile("/Users/xiangyue/Documents/github-repo/swift-nio-ssl/ssl/4/server.pem")
+            sslContext = try NIOSSLContext(configuration: TLSConfiguration.makeServerConfiguration(
+                certificateChain: certificateChain.map { .certificate($0) },
+                privateKey: .file("/Users/xiangyue/Documents/github-repo/swift-nio-ssl/ssl/4/server.key.pem")))
+        } catch (let error) {
+            self.logger.error("setup ssl context failed \(error)")
+            self.httpErrorAndClose(context: context)
+            return
+        }
         
         let sslServerHandler = NIOSSLServerHandler(context: sslContext)
-        context.channel.pipeline.addHandler(sslServerHandler, name: "ssl-handler", position: .first).flatMap {
-            context.channel.pipeline.removeHandler(name: HandlerName.HTTPRequestDecoder.rawValue)
+        print("-------\n\(context.channel.pipeline.debugDescription)")
+        context.channel.pipeline.removeHandler(name: HandlerName.HTTPRequestDecoder.rawValue).flatMap {
+            context.pipeline.removeHandler(name: HandlerName.HTTPResponseEncoder.rawValue)
         }
         .flatMap {
-            context.channel.pipeline.removeHandler(name: HandlerName.HTTPResponseEncoder.rawValue)
+            context.pipeline.removeHandler(name: HandlerName.HTTPHeadHandler.rawValue)
         }
         .flatMap {
-            context.channel.pipeline.removeHandler(name: HandlerName.HTTPHeadHandler.rawValue)
+            context.channel.pipeline.addHandler(sslServerHandler, name: "ssl-handler", position: .first)
         }
         .flatMap {
             context.channel.pipeline.configureHTTPServerPipeline(withErrorHandling: true)
@@ -234,6 +235,25 @@ extension HTTPHeadHandler: ChannelInboundHandler {
         .flatMap {
             context.channel.pipeline.addHandler(HTTPProxyHandler(), name: HandlerName.HTTPProxyHandler.rawValue)
         }
+        .whenComplete { [weak self] result in
+            switch result {
+            case .success():
+                self?.logger.info("setup unwrap https handler successfully")
+            case .failure(let error):
+                self?.logger.error("setup unwrap https handler failed: \(error)")
+                self?.httpErrorAndClose(context: context)
+            }
+        }
+    }
+    
+    private func sendUpgradeSuccessResponse(context: ChannelHandlerContext) {
+        // Ok, upgrade has completed! We now need to begin the upgrade process.
+        // First, send the 200 message.
+        // This content-length header is MUST NOT, but we need to workaround NIO's insistence that we set one.
+        let headers = HTTPHeaders([("Content-Length", "0")])
+        let head = HTTPResponseHead(version: .init(major: 1, minor: 1), status: .ok, headers: headers)
+        context.write(self.wrapOutboundOut(.head(head)), promise: nil)
+        context.writeAndFlush(self.wrapOutboundOut(.end(nil)), promise: nil)
     }
     
     private func removeDecoder(context: ChannelHandlerContext) {

@@ -8,6 +8,7 @@
 import Foundation
 
 public enum ProxyType {
+    case unknown
     case http
     case https(isTransparent: Bool)
 }
