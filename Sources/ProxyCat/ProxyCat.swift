@@ -9,8 +9,11 @@ public struct ProxyCat {
     public static func main() {
         let url = URL(string: "http://www.gov.cn")
         print(url?.host)
-        let proxyServer = ProxyServer()
-        proxyServer.start()
+        Task {
+            let proxyServer = ProxyServer()
+            await proxyServer.start()
+        }
+        
         dispatchMain()
     }
 }

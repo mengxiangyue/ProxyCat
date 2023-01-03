@@ -49,10 +49,7 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
     typealias OutboundIn = HTTPClientResponsePart
     typealias OutboundOut = HTTPServerResponsePart
     
-    
-    
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
-        print("channelRead->\(self.unwrapInboundIn(data)) \n\(context.channel.pipeline) ")
         if isSetHttpHandlerSuccess {
             context.fireChannelRead(data)
             return
@@ -64,14 +61,14 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
         switch self.upgradeState {
         case .idle:
             self.handleInitialMessage(context: context, data: self.unwrapInboundIn(data), sourceData: data)
-
+            
         case .beganConnectingToTargetServer:
             // We got .end, we're still waiting on the connection
             if case .end = self.unwrapInboundIn(data) {
                 self.upgradeState = .awaitingTargetServerConnection(pendingBytes: [])
                 self.removeDecoder(context: context)
             }
-
+            
         case .awaitingReceiveSourceClientEnd(let targetServerChannel):
             if case .end = self.unwrapInboundIn(data), case .https(let isTransprent) = proxyType  {
                 if isTransprent {
@@ -81,7 +78,7 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
                         self.glue(targetServerChannel, context: context)
                     }
                 } else {
-//                    self.setupUnwrapSSLHandler(context: context)
+                    //                    self.setupUnwrapSSLHandler(context: context)
                 }
             }
         case .awaitingTargetServerConnection(var pendingBytes):
@@ -89,13 +86,12 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
             self.upgradeState = .awaitingTargetServerConnection(pendingBytes: [])
             pendingBytes.append(data)
             self.upgradeState = .awaitingTargetServerConnection(pendingBytes: pendingBytes)
-
+            
         case .upgradeComplete(pendingBytes: var pendingBytes):
             // We're currently delivering data, keep doing so.
             self.upgradeState = .upgradeComplete(pendingBytes: [])
             pendingBytes.append(data)
             self.upgradeState = .upgradeComplete(pendingBytes: pendingBytes)
-
         case .upgradeFailed:
             break
         }
@@ -103,11 +99,11 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
     
     private func handleInitialMessage(context: ChannelHandlerContext, data: InboundIn, sourceData: NIOAny) {
         guard case .head(let head) = data else {
-//            self.logger.error("Invalid HTTP message type \(data)")
+            self.logger.error("Invalid HTTP message type \(data)")
 //            self.httpErrorAndClose(context: context)
             return
         }
-
+        
         self.logger.info("\(head.method) \(head.uri) \(head.version)")
         
         switch head.method {
@@ -126,53 +122,50 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
                 context.write(self.wrapOutboundOut(.head(head)), promise: nil)
                 context.writeAndFlush(self.wrapOutboundOut(.end(nil)), promise: nil)
                 
+                let sslContext: NIOSSLContext
                 do {
-                  let certificateChain = try NIOSSLCertificate.fromPEMFile("/Users/xiangyue/Documents/github-repo/swift-nio-ssl/ssl/4/server.pem")
-                  let sslContext = try! NIOSSLContext(configuration: TLSConfiguration.makeServerConfiguration(
-                      certificateChain: certificateChain.map { .certificate($0) },
-                      privateKey: .file("/Users/xiangyue/Documents/github-repo/swift-nio-ssl/ssl/4/server.key.pem"))
-                  )
-
-                  let sslServerHandler = NIOSSLServerHandler(context: sslContext) { certs, promise in
-                    promise.futureResult.whenComplete { result in
-                      print(result)
-                    }
-                  }
-                  context.channel.pipeline.addHandler(sslServerHandler, name: "ssl-handler", position: .first).flatMap {
-                    context.channel.pipeline.removeHandler(name: "HTTPRequestDecoder")
-                  }
-                  .flatMap {
-                    context.channel.pipeline.removeHandler(name: "HTTPResponseEncoder")
-                  }
-                  .flatMap {
+                    let certificateChain = try NIOSSLCertificate.fromPEMFile("/Users/xiangyue/Documents/github-repo/swift-nio-ssl/ssl/4/server.pem")
+                    sslContext = try NIOSSLContext(configuration: TLSConfiguration.makeServerConfiguration(
+                        certificateChain: certificateChain.map { .certificate($0) },
+                        privateKey: .file("/Users/xiangyue/Documents/github-repo/swift-nio-ssl/ssl/4/server.key.pem"))
+                    )
+                } catch {
+                    self.logger.info("error \(error)")
+                    return
+                }
+                    
+                let sslServerHandler = NIOSSLServerHandler(context: sslContext)
+                context.channel.pipeline.addHandler(sslServerHandler, name: HandlerName.SSLServerHandler.rawValue, position: .first).flatMap {
+                    context.channel.pipeline.removeHandler(name: HandlerName.HTTPRequestDecoder.rawValue)
+                }
+                .flatMap {
+                    context.channel.pipeline.removeHandler(name: HandlerName.HTTPResponseEncoder.rawValue)
+                }
+                .flatMap {
                     context.channel.pipeline.removeHandler(self)
-                  }
-                  .flatMap {
+                }
+                .flatMap {
                     context.channel.pipeline.configureHTTPServerPipeline(withErrorHandling: true)
-                  }
-                  .flatMap {
+                }
+                .flatMap {
                     context.channel.pipeline.addHandler(HTTPProxyHandler())
-                  }
-                } catch let error {
-                  print("error: \(error)")
+                }
+                .whenComplete { result in
+                    switch result {
+                    case .success:
+                        self.logger.info("success")
+                    case .failure(let error):
+                        self.logger.info("error \(error)")
+                    }
                 }
             }
         default:
             self.isSetHttpHandler = true
             self.receivedMessages.append(sourceData)
             self.proxyType = .http
-            self.upgradeState = .awaitingReceiveSourceClientEnd(targetServerChannel: nil)
-            guard let url = URL(string: head.uri), let host = url.host else {
-                self.logger.error("url parse error: \(head.uri)")
-                self.httpErrorAndClose(context: context)
-                return
-            }
-            let port = url.port ?? 80
             self.upgradeState = .beganConnectingToTargetServer
-//            self.connectTo(host: String(host), port: port, context: context)
             let promise: EventLoopPromise<Void>? = context.eventLoop.makePromise()
             self.setupUnwrapHTTPHandlers(context: context, promise: promise)
-            print("------111111111-----------")
             promise?.futureResult.whenComplete { [weak self] result in
                 guard let `self` = self else { return }
                 switch result {
@@ -180,29 +173,8 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
                     while !self.receivedMessages.isEmpty {
                         context.fireChannelRead(self.receivedMessages.removeFirst())
                     }
-//                    context.pipeline.handler(type: HTTPServerPipelineHandler.self).whenComplete { result in
-//                        switch result {
-//                        case .success(let handler):
-////                            context.channel.pipeline.removeHandler(self).flatMap {
-////                                context.channel.pipeline.addHandler(self, position: .before(handler)).map {
-//                                    print(context.channel.pipeline.debugDescription)
-//                                    print("----\(context.channel.pipeline)")
-//                                    self.isSetHttpHandlerSuccess = true
-////                            let first = self.receivedMessages.removeFirst()
-////                            while !self.receivedMessages.isEmpty {
-////                                context.fireChannelRead(self.receivedMessages.removeFirst())
-////                            }
-////                                    context.fireChannelRead(first)
-//    //                                context.fireChannelRead(sourceData)
-//    //                                context.pipeline.removeHandler(self)
-//    //                                context.channel.pipeline.write(sourceData)
-////                                }
-////                            }
-//                        case .failure(let error):
-//                            self.logger.error("xxx")
-//                        }
-//                    }
                 case .failure(let error):
+                    self.logger.info("error \(error)")
                     self.httpErrorAndClose(context: context)
                 }
             }
@@ -213,7 +185,7 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
     private func HTTPSTransprentConnectTo(host: String, port: Int, context: ChannelHandlerContext) {
         let channelFuture = ClientBootstrap(group: context.eventLoop)
             .connect(host: String(host), port: port)
-
+        
         channelFuture.whenSuccess { channel in
             self.connectSucceeded(channel: channel, context: context)
         }
@@ -221,55 +193,55 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
             self.connectFailed(error: error, context: context)
         }
     }
-
+    
     private func connectSucceeded(channel: Channel, context: ChannelHandlerContext) {
         self.logger.info("Connected to \(String(describing: channel.remoteAddress))")
-
+        
         switch self.upgradeState {
         case .beganConnectingToTargetServer:
             // Ok, we have a channel, let's wait for end.
             self.upgradeState = .awaitingReceiveSourceClientEnd(targetServerChannel: channel)
-
+            
         case .awaitingTargetServerConnection(pendingBytes: let pendingBytes):
             // Upgrade complete! Begin gluing the connection together.
             self.upgradeState = .upgradeComplete(pendingBytes: pendingBytes)
             self.glue(channel, context: context)
-
+            
         case .awaitingReceiveSourceClientEnd(let targetServerChannel):
             // This case is a logic error, close already connected peer channel.
             targetServerChannel?.close(mode: .all, promise: nil)
             context.close(promise: nil)
-
+            
         case .idle, .upgradeFailed, .upgradeComplete:
             // These cases are logic errors, but let's be careful and just shut the connection.
             context.close(promise: nil)
         }
     }
-
+    
     private func connectFailed(error: Error, context: ChannelHandlerContext) {
         self.logger.error("Connect failed: \(error)")
-
+        
         switch self.upgradeState {
         case .beganConnectingToTargetServer, .awaitingTargetServerConnection:
             // We still have a somewhat active connection here in HTTP mode, and can report failure.
             self.httpErrorAndClose(context: context)
-
+            
         case .awaitingReceiveSourceClientEnd(let targetServerChannel):
             // This case is a logic error, close already connected peer channel.
             targetServerChannel?.close(mode: .all, promise: nil)
             context.close(promise: nil)
-
+            
         case .idle, .upgradeFailed, .upgradeComplete:
             // Most of these cases are logic errors, but let's be careful and just shut the connection.
             context.close(promise: nil)
         }
-
+        
         context.fireErrorCaught(error)
     }
     
     private func httpErrorAndClose(context: ChannelHandlerContext) {
         self.upgradeState = .upgradeFailed
-
+        
         let headers = HTTPHeaders([("Content-Length", "0"), ("Connection", "close")])
         let head = HTTPResponseHead(version: .init(major: 1, minor: 1), status: .badRequest, headers: headers)
         context.write(self.wrapOutboundOut(.head(head)), promise: nil)
@@ -280,12 +252,12 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
     
     private func glue(_ peerChannel: Channel, context: ChannelHandlerContext) {
         self.logger.debug("Gluing together \(ObjectIdentifier(context.channel)) and \(ObjectIdentifier(peerChannel))")
-
+        
         sendUpgradeSuccessResponse(context: context)
-
+        
         // Now remove the HTTP encoder.
         self.removeEncoder(context: context)
-
+        
         // Now we need to glue our channel and the peer channel together.
         let (localGlue, peerGlue) = HTTPTransparentHandler.matchedPair()
         context.channel.pipeline.addHandler(localGlue).and(peerChannel.pipeline.addHandler(peerGlue)).whenComplete { result in
@@ -323,25 +295,21 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
             .whenComplete { [weak self] result in
                 switch result {
                 case .success():
-                    self?.logger.info("setup unwrap https handler successfully")
+                    self?.logger.info("setup ssl handler successfully")
                     if !needToSetupHttp {
                         self?.setupUnwrapHTTPHandlers(context: context)
                     }
                 case .failure(let error):
-                    self?.logger.error("setup unwrap https handler failed: \(error)")
+                    self?.logger.error("setup ssl handler failed: \(error)")
                     self?.httpErrorAndClose(context: context)
                 }
             }
     }
     
     private func setupUnwrapHTTPHandlers(context: ChannelHandlerContext, promise: EventLoopPromise<Void>? = nil) {
-        print("11111-------\n\(context.channel.pipeline.debugDescription)")
         context.channel.pipeline.removeHandler(name: HandlerName.HTTPRequestDecoder.rawValue).flatMap {
             context.pipeline.removeHandler(name: HandlerName.HTTPResponseEncoder.rawValue)
         }
-//        .flatMap {
-//            context.pipeline.removeHandler(name: HandlerName.HTTPHeadHandler.rawValue)
-//        }
         .flatMap {
             self._configureHTTPServerPipeline(context: context)
         }
@@ -351,11 +319,10 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
         .whenComplete { [weak self] result in
             switch result {
             case .success():
-                print("------22222222-----------")
                 self?.logger.info("setup unwrap https handler successfully")
                 promise?.succeed(())
             case .failure(let error):
-                self?.logger.error("1111 setup unwrap https handler failed: \(error)")
+                self?.logger.error("setup unwrap https handler failed: \(error)")
                 self?.httpErrorAndClose(context: context)
                 promise?.fail(error)
             }
@@ -376,16 +343,10 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
         // We drop the future on the floor here as these handlers must all be in our own pipeline, and this should
         // therefore succeed fast.
         context.channel.pipeline.removeHandler(name: HandlerName.HTTPRequestDecoder.rawValue)
-//        context.pipeline.context(handlerType: ByteToMessageHandler<HTTPRequestDecoder>.self).whenSuccess {
-//            context.pipeline.removeHandler(context: $0, promise: nil)
-//        }
     }
-
+    
     private func removeEncoder(context: ChannelHandlerContext) {
         context.channel.pipeline.removeHandler(name: HandlerName.HTTPResponseEncoder.rawValue)
-//        context.pipeline.context(handlerType: HTTPResponseEncoder.self).whenSuccess {
-//            context.pipeline.removeHandler(context: $0, promise: nil)
-//        }
     }
     
     // copy from NIOHTTP1/HTTPPipelineSetup and do some modification
@@ -395,11 +356,11 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
                                               withServerUpgrade upgrade: NIOHTTPServerUpgradeConfiguration? = nil,
                                               withErrorHandling errorHandling: Bool = true,
                                               withOutboundHeaderValidation headerValidation: Bool = true) ->  EventLoopFuture<Void> {
-
+        
         let responseEncoder = HTTPResponseEncoder()
         let requestDecoder = HTTPRequestDecoder(leftOverBytesStrategy: upgrade == nil ? .dropBytes : .forwardBytes)
         
-
+        
         
         var handlers: [RemovableChannelHandler] = [responseEncoder, ByteToMessageHandler(requestDecoder)]
         return context.pipeline.addHandlers(handlers, position: .first).flatMap {
@@ -408,15 +369,15 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
             if pipelining {
                 handlers.append(HTTPServerPipelineHandler())
             }
-
+            
             if headerValidation {
                 handlers.append(NIOHTTPResponseHeadersValidator())
             }
-
+            
             if errorHandling {
                 handlers.append(HTTPServerProtocolErrorHandler())
             }
-
+            
             if let (upgraders, completionHandler) = upgrade {
                 let upgrader = HTTPServerUpgradeHandler(upgraders: upgraders,
                                                         httpEncoder: responseEncoder,
@@ -433,22 +394,22 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
 extension HTTPHeadHandler: RemovableChannelHandler {
     func removeHandler(context: ChannelHandlerContext, removalToken: ChannelHandlerContext.RemovalToken) {
         var didRead = false
-
+        
         // We are being removed, and need to deliver any pending bytes we may have if we're upgrading.
         while case .upgradeComplete(var pendingBytes) = self.upgradeState, pendingBytes.count > 0 {
             // Avoid a CoW while we pull some data out.
             self.upgradeState = .upgradeComplete(pendingBytes: [])
             let nextRead = pendingBytes.removeFirst()
             self.upgradeState = .upgradeComplete(pendingBytes: pendingBytes)
-
+            
             context.fireChannelRead(nextRead)
             didRead = true
         }
-
+        
         if didRead {
             context.fireChannelReadComplete()
         }
-
+        
         self.logger.debug("Removing \(self) from pipeline")
         context.leavePipeline(removalToken: removalToken)
     }

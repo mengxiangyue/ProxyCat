@@ -5,6 +5,9 @@ import PackageDescription
 
 let package = Package(
     name: "ProxyCat",
+    platforms: [
+        .macOS(.v10_15)
+    ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.0.0"),
         .package(url: "https://github.com/apple/swift-nio-ssl.git", from: "2.23.0"),
