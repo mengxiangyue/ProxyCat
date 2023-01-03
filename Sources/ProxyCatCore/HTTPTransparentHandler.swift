@@ -19,7 +19,6 @@ final class HTTPTransparentHandler {
     private init() { }
 }
 
-
 extension HTTPTransparentHandler {
     static func matchedPair() -> (HTTPTransparentHandler, HTTPTransparentHandler) {
         let local = HTTPTransparentHandler()

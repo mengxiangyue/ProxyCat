@@ -18,7 +18,8 @@ final class HTTPProxyHandler: ChannelInboundHandler {
     
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         let reqPart = self.unwrapInboundIn(data)
-        
+        print("--------HTTPProxyHandler---------")
+        print(context.pipeline.debugDescription)
         switch reqPart {
         case .head(let request):
             print("HTTPProxyHandler http request: \(request.headers["Host"])")

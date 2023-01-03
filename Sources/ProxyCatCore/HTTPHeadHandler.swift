@@ -20,9 +20,7 @@ final class HTTPHeadHandler {
         }
     }
     private var logger: Logger
-    private var proxyType = ProxyType.unknown
     private var isSetHttpHandler = false
-    private var isSetHttpHandlerSuccess = false
     
     private var receivedMessages: CircularBuffer<NIOAny> = CircularBuffer()
     
@@ -50,10 +48,6 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
     typealias OutboundOut = HTTPServerResponsePart
     
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
-        if isSetHttpHandlerSuccess {
-            context.fireChannelRead(data)
-            return
-        }
         if isSetHttpHandler {
             receivedMessages.append(data)
             return
@@ -70,15 +64,11 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
             }
             
         case .awaitingReceiveSourceClientEnd(let targetServerChannel):
-            if case .end = self.unwrapInboundIn(data), case .https(let isTransprent) = proxyType  {
-                if isTransprent {
-                    self.upgradeState = .upgradeComplete(pendingBytes: [])
-                    self.removeDecoder(context: context)
-                    if let targetServerChannel = targetServerChannel {
-                        self.glue(targetServerChannel, context: context)
-                    }
-                } else {
-                    //                    self.setupUnwrapSSLHandler(context: context)
+            if case .end = self.unwrapInboundIn(data) {
+                self.upgradeState = .upgradeComplete(pendingBytes: [])
+                self.removeDecoder(context: context)
+                if let targetServerChannel = targetServerChannel {
+                    self.glue(targetServerChannel, context: context)
                 }
             }
         case .awaitingTargetServerConnection(var pendingBytes):
@@ -114,13 +104,9 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
             let port = components.last.flatMap { Int($0, radix: 10) } ?? 80  // Port 80 if not specified
             if ["www.baidu.com"].contains(host) { // transprent https
                 self.upgradeState = .beganConnectingToTargetServer
-                self.proxyType = .https(isTransparent: true)
                 self.HTTPSTransprentConnectTo(host: String(host), port: port, context: context)
             } else { // unwrap https request
-                let headers = HTTPHeaders([("Content-Length", "0")])
-                let head = HTTPResponseHead(version: .init(major: 1, minor: 1), status: .ok, headers: headers)
-                context.write(self.wrapOutboundOut(.head(head)), promise: nil)
-                context.writeAndFlush(self.wrapOutboundOut(.end(nil)), promise: nil)
+                self.sendUpgradeSuccessResponse(context: context)
                 
                 let sslContext: NIOSSLContext
                 do {
@@ -162,7 +148,6 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
         default:
             self.isSetHttpHandler = true
             self.receivedMessages.append(sourceData)
-            self.proxyType = .http
             self.upgradeState = .beganConnectingToTargetServer
             let promise: EventLoopPromise<Void>? = context.eventLoop.makePromise()
             self.setupUnwrapHTTPHandlers(context: context, promise: promise)
@@ -173,6 +158,7 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
                     while !self.receivedMessages.isEmpty {
                         context.fireChannelRead(self.receivedMessages.removeFirst())
                     }
+                    _ = context.pipeline.removeHandler(self)
                 case .failure(let error):
                     self.logger.info("error \(error)")
                     self.httpErrorAndClose(context: context)
@@ -235,7 +221,6 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
             // Most of these cases are logic errors, but let's be careful and just shut the connection.
             context.close(promise: nil)
         }
-        
         context.fireErrorCaught(error)
     }
     
@@ -255,27 +240,27 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
         
         sendUpgradeSuccessResponse(context: context)
         
-        // Now remove the HTTP encoder.
-        self.removeEncoder(context: context)
-        
         // Now we need to glue our channel and the peer channel together.
         let (localGlue, peerGlue) = HTTPTransparentHandler.matchedPair()
-        context.channel.pipeline.addHandler(localGlue).and(peerChannel.pipeline.addHandler(peerGlue)).whenComplete { result in
-            switch result {
-            case .success(_):
-                context.pipeline.removeHandler(self, promise: nil)
-            case .failure(_):
-                // Close connected peer channel before closing our channel.
-                peerChannel.close(mode: .all, promise: nil)
-                context.close(promise: nil)
+        
+        context.channel.pipeline.removeHandler(name: HandlerName.HTTPResponseEncoder.rawValue)
+            .flatMap {
+                context.channel.pipeline.addHandler(localGlue).and(peerChannel.pipeline.addHandler(peerGlue))
             }
-        }
+            .whenComplete { result in
+                switch result {
+                case .success(_):
+                    context.pipeline.removeHandler(self, promise: nil)
+                case .failure(_):
+                    // Close connected peer channel before closing our channel.
+                    peerChannel.close(mode: .all, promise: nil)
+                    context.close(promise: nil)
+                }
+            }
     }
     
-    private func setupUnwrapSSLHandler(context: ChannelHandlerContext, sendresponse: Bool = true, needToSetupHttp: Bool = true) {
-        if sendresponse {
-            self.sendUpgradeSuccessResponse(context: context)
-        }
+    private func setupUnwrapSSLHandler(context: ChannelHandlerContext) {
+        self.sendUpgradeSuccessResponse(context: context)
         self.logger.debug("setup unwrap https handler")
         let certificateChain: [NIOSSLCertificate]
         let sslContext: NIOSSLContext
@@ -296,9 +281,7 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
                 switch result {
                 case .success():
                     self?.logger.info("setup ssl handler successfully")
-                    if !needToSetupHttp {
-                        self?.setupUnwrapHTTPHandlers(context: context)
-                    }
+                    self?.setupUnwrapHTTPHandlers(context: context)
                 case .failure(let error):
                     self?.logger.error("setup ssl handler failed: \(error)")
                     self?.httpErrorAndClose(context: context)
@@ -345,10 +328,6 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
         context.channel.pipeline.removeHandler(name: HandlerName.HTTPRequestDecoder.rawValue)
     }
     
-    private func removeEncoder(context: ChannelHandlerContext) {
-        context.channel.pipeline.removeHandler(name: HandlerName.HTTPResponseEncoder.rawValue)
-    }
-    
     // copy from NIOHTTP1/HTTPPipelineSetup and do some modification
     private func _configureHTTPServerPipeline(context: ChannelHandlerContext,
                                               position: ChannelPipeline.Position = .last,
@@ -359,8 +338,6 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
         
         let responseEncoder = HTTPResponseEncoder()
         let requestDecoder = HTTPRequestDecoder(leftOverBytesStrategy: upgrade == nil ? .dropBytes : .forwardBytes)
-        
-        
         
         var handlers: [RemovableChannelHandler] = [responseEncoder, ByteToMessageHandler(requestDecoder)]
         return context.pipeline.addHandlers(handlers, position: .first).flatMap {
