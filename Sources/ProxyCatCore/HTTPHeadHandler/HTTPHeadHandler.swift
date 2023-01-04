@@ -87,7 +87,7 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
         }
     }
     
-    private func httpErrorAndClose(context: ChannelHandlerContext) {
+    internal func httpErrorAndClose(context: ChannelHandlerContext) {
         let headers = HTTPHeaders([("Content-Length", "0"), ("Connection", "close")])
         let head = HTTPResponseHead(version: .init(major: 1, minor: 1), status: .badRequest, headers: headers)
         context.write(self.wrapOutboundOut(.head(head)), promise: nil)
@@ -96,7 +96,7 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
         }
     }
     
-    private func sendUpgradeSuccessResponse(context: ChannelHandlerContext) {
+    internal func sendUpgradeSuccessResponse(context: ChannelHandlerContext) {
         // Ok, upgrade has completed! We now need to begin the upgrade process.
         // First, send the 200 message.
         // This content-length header is MUST NOT, but we need to workaround NIO's insistence that we set one.
@@ -108,4 +108,4 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
 }
 
 
-extension HTTPHeadHandler: RemovableChannelHandler {}
+extension HTTPHeadHandler: RemovableChannelHandler, HTTPHeadResponseSender {}

@@ -10,7 +10,7 @@ import NIO
 import NIOHTTP1
 import Logging
 
-final class HTTPChannelCallbackHandler<ChannelHandler: ChannelInboundHandler & RemovableChannelHandler>
+final class HTTPChannelCallbackHandler<ChannelHandler: ChannelInboundHandler & RemovableChannelHandler & HTTPHeadResponseSender>
 where ChannelHandler.InboundIn == HTTPServerRequestPart, ChannelHandler.OutboundOut == HTTPServerResponsePart {
     
     private var receivedMessages: CircularBuffer<NIOAny> = CircularBuffer()
@@ -38,7 +38,7 @@ extension HTTPChannelCallbackHandler: HTTPHeadChannelCallbackHandler {
         let reqPart = self.channelHandler?.unwrapInboundIn(data)
         guard case .head(let head) = reqPart else {
             self.logger.error("Invalid HTTP message type \(data)")
-//            self.httpErrorAndClose(context: context) // mxy 
+            channelHandler.httpErrorAndClose(context: context)
             return
         }
         
@@ -58,7 +58,7 @@ extension HTTPChannelCallbackHandler: HTTPHeadChannelCallbackHandler {
                 _ = context.pipeline.removeHandler(channelHandler)
             case .failure(let error):
                 self.logger.info("error \(error)")
-//                self.httpErrorAndClose(context: context) // mxy
+                channelHandler.httpErrorAndClose(context: context)
             }
         }
     }
@@ -82,7 +82,7 @@ extension HTTPChannelCallbackHandler: HTTPHeadChannelCallbackHandler {
                     promise?.succeed(())
                 case .failure(let error):
                     self?.logger.error("setup unwrap https handler failed: \(error)")
-//                    self?.httpErrorAndClose(context: context)
+                    self?.channelHandler?.httpErrorAndClose(context: context)
                     promise?.fail(error)
                 }
             }

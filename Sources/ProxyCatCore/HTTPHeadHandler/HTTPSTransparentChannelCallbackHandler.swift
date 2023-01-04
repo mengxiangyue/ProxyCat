@@ -10,7 +10,7 @@ import NIO
 import NIOHTTP1
 import Logging
 
-final class HTTPSTransparentChannelCallbackHandler<ChannelHandler: ChannelInboundHandler & RemovableChannelHandler>
+final class HTTPSTransparentChannelCallbackHandler<ChannelHandler: ChannelInboundHandler & RemovableChannelHandler & HTTPHeadResponseSender>
 where ChannelHandler.InboundIn == HTTPServerRequestPart, ChannelHandler.OutboundOut == HTTPServerResponsePart {
     private var upgradeState: State
     private weak var channelHandler: ChannelHandler?
@@ -107,20 +107,20 @@ private extension HTTPSTransparentChannelCallbackHandler {
     private func handleInitialMessage(context: ChannelHandlerContext, data: ChannelHandler.InboundIn) {
         guard case .head(let head) = data else {
             self.logger.error("Invalid HTTP message type \(data)")
-            self.httpErrorAndClose(context: context)
+            self.channelHandler?.httpErrorAndClose(context: context)
             return
         }
         
         guard head.method == .CONNECT else {
             self.logger.error("Invalid HTTP method: \(head.method)")
-            self.httpErrorAndClose(context: context)
+            self.channelHandler?.httpErrorAndClose(context: context)
             return
         }
         
         let components = head.uri.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
         guard components.count > 1 else {
             self.logger.error("Invalid HTTP message uri \(head.uri)")
-            self.httpErrorAndClose(context: context)
+            self.channelHandler?.httpErrorAndClose(context: context)
             return
         }
         
@@ -175,7 +175,7 @@ private extension HTTPSTransparentChannelCallbackHandler {
         switch self.upgradeState {
         case .beganConnecting, .awaitingConnection:
             // We still have a somewhat active connection here in HTTP mode, and can report failure.
-            self.httpErrorAndClose(context: context)
+            self.channelHandler?.httpErrorAndClose(context: context)
             
         case .awaitingEnd(let peerChannel):
             // This case is a logic error, close already connected peer channel.
@@ -193,14 +193,8 @@ private extension HTTPSTransparentChannelCallbackHandler {
     private func glue(_ peerChannel: Channel, context: ChannelHandlerContext) {
         self.logger.debug("Gluing together \(ObjectIdentifier(context.channel)) and \(ObjectIdentifier(peerChannel))")
         
-        // Ok, upgrade has completed! We now need to begin the upgrade process.
-        // First, send the 200 message.
-        // This content-length header is MUST NOT, but we need to workaround NIO's insistence that we set one.
         guard let channelHandler = channelHandler else { return }
-        let headers = HTTPHeaders([("Content-Length", "0")])
-        let head = HTTPResponseHead(version: .init(major: 1, minor: 1), status: .ok, headers: headers)
-        context.write(channelHandler.wrapOutboundOut(.head(head)), promise: nil)
-        context.writeAndFlush(channelHandler.wrapOutboundOut(.end(nil)), promise: nil)
+        channelHandler.sendUpgradeSuccessResponse(context: context)
         
         // Now remove the HTTP encoder.
         self.removeEncoder(context: context)
@@ -220,17 +214,17 @@ private extension HTTPSTransparentChannelCallbackHandler {
         }
     }
     
-    private func httpErrorAndClose(context: ChannelHandlerContext) {
-        self.upgradeState = .upgradeFailed
-        guard let channelHandler = channelHandler else { return }
-        
-        let headers = HTTPHeaders([("Content-Length", "0"), ("Connection", "close")])
-        let head = HTTPResponseHead(version: .init(major: 1, minor: 1), status: .badRequest, headers: headers)
-        context.write(channelHandler.wrapOutboundOut(.head(head)), promise: nil)
-        context.writeAndFlush(channelHandler.wrapOutboundOut(.end(nil))).whenComplete { (_: Result<Void, Error>) in
-            context.close(mode: .output, promise: nil)
-        }
-    }
+//    private func httpErrorAndClose(context: ChannelHandlerContext) {
+//        self.upgradeState = .upgradeFailed
+//        guard let channelHandler = channelHandler else { return }
+//
+//        let headers = HTTPHeaders([("Content-Length", "0"), ("Connection", "close")])
+//        let head = HTTPResponseHead(version: .init(major: 1, minor: 1), status: .badRequest, headers: headers)
+//        context.write(channelHandler.wrapOutboundOut(.head(head)), promise: nil)
+//        context.writeAndFlush(channelHandler.wrapOutboundOut(.end(nil))).whenComplete { (_: Result<Void, Error>) in
+//            context.close(mode: .output, promise: nil)
+//        }
+//    }
     
     private func removeDecoder(context: ChannelHandlerContext) {
         // We drop the future on the floor here as these handlers must all be in our own pipeline, and this should

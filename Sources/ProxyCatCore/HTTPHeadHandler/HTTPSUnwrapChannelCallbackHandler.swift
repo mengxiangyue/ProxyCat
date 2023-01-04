@@ -12,7 +12,7 @@ import Logging
 import NIOTLS
 import NIOSSL
 
-final class HTTPSUnwrapChannelCallbackHandler<ChannelHandler: ChannelInboundHandler & RemovableChannelHandler>
+final class HTTPSUnwrapChannelCallbackHandler<ChannelHandler: ChannelInboundHandler & RemovableChannelHandler & HTTPHeadResponseSender>
 where ChannelHandler.InboundIn == HTTPServerRequestPart, ChannelHandler.OutboundOut == HTTPServerResponsePart {
     private weak var channelHandler: ChannelHandler?
     private var logger: Logger
@@ -32,14 +32,10 @@ extension HTTPSUnwrapChannelCallbackHandler: HTTPHeadChannelCallbackHandler {
         
         guard case .head = channelHandler.unwrapInboundIn(data) else {
             self.logger.error("Invalid HTTP message type \(data)")
-//            self.httpErrorAndClose(context: context) // mxy
             return
         }
         
-        let headers = HTTPHeaders([("Content-Length", "0")])
-        let head = HTTPResponseHead(version: .init(major: 1, minor: 1), status: .ok, headers: headers)
-        context.write(channelHandler.wrapOutboundOut(.head(head)), promise: nil)
-        context.writeAndFlush(channelHandler.wrapOutboundOut(.end(nil)), promise: nil)
+        channelHandler.sendUpgradeSuccessResponse(context: context)
         
         let sslContext: NIOSSLContext
         do {
