@@ -13,16 +13,34 @@ import NIOTLS
 import NIOSSL
 import Foundation
 
-final class HTTPHeadHandler {
-    private var upgradeState: State {
-        didSet {
-            print("upgradeState->\(self.upgradeState)")
-        }
+enum HTTPHeadHandleError: Error {
+    case invalidHTTPMessageOrdering
+    case invalidHTTPMessage
+}
+
+protocol HTTPHeadChannelCallbackHandler {
+    func channelRead(context: ChannelHandlerContext, data: NIOAny)
+    func removeHandler(context: ChannelHandlerContext, removalToken: ChannelHandlerContext.RemovalToken)
+}
+
+extension HTTPHeadChannelCallbackHandler {
+    func channelRead(context: ChannelHandlerContext, data: NIOAny) {
+        context.fireChannelRead(data)
     }
+
+    public func removeHandler(context: ChannelHandlerContext, removalToken: ChannelHandlerContext.RemovalToken) {
+        context.leavePipeline(removalToken: removalToken)
+    }
+}
+
+
+final class HTTPHeadHandler {
+    private var upgradeState: State
     private var logger: Logger
     private var isSetHttpHandler = false
     
     private var receivedMessages: CircularBuffer<NIOAny> = CircularBuffer()
+    private var callBackHandler: HTTPHeadChannelCallbackHandler?
     
     init(logger: Logger) {
         self.upgradeState = .idle
@@ -48,6 +66,18 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
     typealias OutboundOut = HTTPServerResponsePart
     
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
+        if callBackHandler == nil {
+            do {
+                try setupCallBackHandler(context: context, data: self.unwrapInboundIn(data))
+            } catch {
+                logger.error("\(error.localizedDescription)")
+                httpErrorAndClose(context: context)
+                return
+            }
+        }
+
+        callBackHandler?.channelRead(context: context, data: data)
+        return
         if isSetHttpHandler {
             receivedMessages.append(data)
             return
@@ -87,6 +117,27 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
         }
     }
     
+    private func setupCallBackHandler(context: ChannelHandlerContext, data: InboundIn) throws {
+        guard case .head(let head) = data else {
+            throw HTTPHeadHandleError.invalidHTTPMessage
+        }
+
+        self.logger.info(">> \(head.method) \(head.uri) \(head.version)")
+
+        if head.method == .CONNECT {
+            let components = head.uri.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+            let host = components.first!  // There will always be a first.
+            if ["www.baidu.com"].contains(host) { // transprent https
+                callBackHandler = try HTTPSTransparentChannelCallbackHandler(channelHandler: self)
+            } else { // unwrap https request
+                callBackHandler = try HTTPSUnwrapChannelCallbackHandler(channelHandler: self)
+            }
+        } else {
+            callBackHandler = try HTTPChannelCallbackHandler(channelHandler: self)
+        }
+    }
+
+    
     private func handleInitialMessage(context: ChannelHandlerContext, data: InboundIn, sourceData: NIOAny) {
         guard case .head(let head) = data else {
             self.logger.error("Invalid HTTP message type \(data)")
@@ -121,29 +172,30 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
                 }
                     
                 let sslServerHandler = NIOSSLServerHandler(context: sslContext)
-                context.channel.pipeline.addHandler(sslServerHandler, name: HandlerName.SSLServerHandler.rawValue, position: .first).flatMap {
-                    context.channel.pipeline.removeHandler(name: HandlerName.HTTPRequestDecoder.rawValue)
-                }
-                .flatMap {
-                    context.channel.pipeline.removeHandler(name: HandlerName.HTTPResponseEncoder.rawValue)
-                }
-                .flatMap {
-                    context.channel.pipeline.removeHandler(self)
-                }
-                .flatMap {
-                    context.channel.pipeline.configureHTTPServerPipeline(withErrorHandling: true)
-                }
-                .flatMap {
-                    context.channel.pipeline.addHandler(HTTPProxyHandler())
-                }
-                .whenComplete { result in
-                    switch result {
-                    case .success:
-                        self.logger.info("success")
-                    case .failure(let error):
-                        self.logger.info("error \(error)")
+                context.channel.pipeline.addHandler(sslServerHandler, name: HandlerName.SSLServerHandler.rawValue, position: .first)
+                    .flatMap {
+                        context.channel.pipeline.removeHandler(name: HandlerName.HTTPRequestDecoder.rawValue)
                     }
-                }
+                    .flatMap {
+                        context.channel.pipeline.removeHandler(name: HandlerName.HTTPResponseEncoder.rawValue)
+                    }
+                    .flatMap {
+                        context.channel.pipeline.removeHandler(self)
+                    }
+                    .flatMap {
+                        context.channel.pipeline.configureHTTPServerPipeline(withErrorHandling: true)
+                    }
+                    .flatMap {
+                        context.channel.pipeline.addHandler(HTTPProxyHandler())
+                    }
+                    .whenComplete { result in
+                        switch result {
+                        case .success:
+                            self.logger.info("success")
+                        case .failure(let error):
+                            self.logger.info("error \(error)")
+                        }
+                    }
             }
         default:
             self.isSetHttpHandler = true
@@ -164,7 +216,6 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
                     self.httpErrorAndClose(context: context)
                 }
             }
-            
         }
     }
     
@@ -241,7 +292,7 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
         sendUpgradeSuccessResponse(context: context)
         
         // Now we need to glue our channel and the peer channel together.
-        let (localGlue, peerGlue) = HTTPTransparentHandler.matchedPair()
+        let (localGlue, peerGlue) = HTTPSGuleHandler.matchedPair()
         
         context.channel.pipeline.removeHandler(name: HandlerName.HTTPResponseEncoder.rawValue)
             .flatMap {
@@ -368,26 +419,4 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
 }
 
 
-extension HTTPHeadHandler: RemovableChannelHandler {
-    func removeHandler(context: ChannelHandlerContext, removalToken: ChannelHandlerContext.RemovalToken) {
-        var didRead = false
-        
-        // We are being removed, and need to deliver any pending bytes we may have if we're upgrading.
-        while case .upgradeComplete(var pendingBytes) = self.upgradeState, pendingBytes.count > 0 {
-            // Avoid a CoW while we pull some data out.
-            self.upgradeState = .upgradeComplete(pendingBytes: [])
-            let nextRead = pendingBytes.removeFirst()
-            self.upgradeState = .upgradeComplete(pendingBytes: pendingBytes)
-            
-            context.fireChannelRead(nextRead)
-            didRead = true
-        }
-        
-        if didRead {
-            context.fireChannelReadComplete()
-        }
-        
-        self.logger.debug("Removing \(self) from pipeline")
-        context.leavePipeline(removalToken: removalToken)
-    }
-}
+extension HTTPHeadHandler: RemovableChannelHandler {}

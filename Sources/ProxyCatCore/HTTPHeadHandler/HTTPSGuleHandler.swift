@@ -8,9 +8,9 @@
 import Foundation
 import NIOCore
 
-final class HTTPTransparentHandler {
+final class HTTPSGuleHandler {
 
-    private var partner: HTTPTransparentHandler?
+    private var partner: HTTPSGuleHandler?
 
     private var context: ChannelHandlerContext?
 
@@ -19,10 +19,10 @@ final class HTTPTransparentHandler {
     private init() { }
 }
 
-extension HTTPTransparentHandler {
-    static func matchedPair() -> (HTTPTransparentHandler, HTTPTransparentHandler) {
-        let local = HTTPTransparentHandler()
-        let peer = HTTPTransparentHandler()
+extension HTTPSGuleHandler {
+    static func matchedPair() -> (HTTPSGuleHandler, HTTPSGuleHandler) {
+        let local = HTTPSGuleHandler()
+        let peer = HTTPSGuleHandler()
 
         local.partner = peer
         peer.partner = local
@@ -32,7 +32,7 @@ extension HTTPTransparentHandler {
 }
 
 
-extension HTTPTransparentHandler {
+extension HTTPSGuleHandler {
     private func partnerWrite(_ data: NIOAny) {
         self.context?.write(data, promise: nil)
     }
@@ -62,7 +62,7 @@ extension HTTPTransparentHandler {
 }
 
 
-extension HTTPTransparentHandler: ChannelDuplexHandler {
+extension HTTPSGuleHandler: ChannelDuplexHandler {
     typealias InboundIn = NIOAny
     typealias OutboundIn = NIOAny
     typealias OutboundOut = NIOAny
