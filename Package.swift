@@ -25,7 +25,13 @@ let package = Package(
         .executableTarget(
             name: "ProxyCat",
             dependencies: [
-                "ProxyCatCore"
+                "ProxyCatCore",
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "NIOPosix", package: "swift-nio"),
+                .product(name: "NIOHTTP1", package: "swift-nio"),
+                .product(name: "Logging", package: "swift-log"),
+                .product(name: "NIOSSL", package: "swift-nio-ssl"),
+                .product(name: "NIOWebSocket", package: "swift-nio-ssl"),
             ]),
         .testTarget(
             name: "ProxyCatTests",

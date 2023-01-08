@@ -39,10 +39,16 @@ extension HTTPSUnwrapChannelCallbackHandler: HTTPHeadChannelCallbackHandler {
         
         let sslContext: NIOSSLContext
         do {
-            let certificateChain = try NIOSSLCertificate.fromPEMFile("/Users/xiangyue/Documents/github-repo/swift-nio-ssl/ssl/4/server.pem")
+//            let certificateChain = try NIOSSLCertificate.fromPEMFile("/Users/xiangyue/Documents/github-repo/swift-nio-ssl/ssl/4/server.pem")
+//            sslContext = try NIOSSLContext(configuration: TLSConfiguration.makeServerConfiguration(
+//                certificateChain: certificateChain.map { .certificate($0) },
+//                privateKey: .file("/Users/xiangyue/Documents/github-repo/swift-nio-ssl/ssl/4/server.key.pem"))
+//            )
+            let certificateUtil = CertificateUtil()
+            let certificateChain = [certificateUtil.signCertificate(forHost: "*.apple.com")]
             sslContext = try NIOSSLContext(configuration: TLSConfiguration.makeServerConfiguration(
-                certificateChain: certificateChain.map { .certificate($0) },
-                privateKey: .file("/Users/xiangyue/Documents/github-repo/swift-nio-ssl/ssl/4/server.key.pem"))
+                certificateChain: certificateChain.map { .certificate($0!) },
+                privateKey: .privateKey(certificateUtil.getServerPrivateKey()!))
             )
         } catch {
             self.logger.info("error \(error)")

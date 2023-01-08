@@ -14,91 +14,90 @@ import CNIOBoringSSL
  C 实现 https://github.com/zozs/openssl-sign-by-ca/blob/master/openssl1.1/main.c
  https://github.com/warmlab/study/blob/master/openssl/x509.c
  */
-let CAKeyString = """
+private let CAKeyString = """
 -----BEGIN PRIVATE KEY-----
-MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQDY7kQXmWQQLFC0
-DEPPfcKNSSxPnxnSt2uraQxHZNBZ1rSC/MkQ0rZEYhUuF0b+RjvdI/qgC00ABkZw
-j5QQkdipDZJYrbp//DaRaD7r6NWKoY7N+9g+6PLymaScv4YB9lXIjzScw0SHC32r
-yCQG1kIHHAbOzv+XZTe6Ks0Po/BlhZhpBQEKkJJvVSM+W+LughAMfllGg+DCz0f/
-anajO1LK6x981E7m6dfvkJ3xDHXicI0myp14K35MVeoqIf+LyIO3h55M8+gijIFk
-tNEJKtB9dQcs9m2A80vWgmd13HYSDqEQZkCSwsgInnl2KDOkCyN6rK3g45HiK8CI
-SwekO13BAgMBAAECggEAVmwN6ozshVjySdh9B2Olp13YblwHEKCMH3y5LJQoQTI9
-NdX5UF9xx6p/n54cZV6bqM0Vor79zR2y4FMC/NrtwuOqQvPrUeOr5Z/vOVLIB/O3
-Da7ghqeNakL1hpDylUOLB1yt7CoK2fYk+dPBLowbP/PVbnye7LShT+SPT0TTl822
-ji0YZ/JNUMgZsO98mAziBTzIluK5bOW8+2XBm4+g4NucqY0Ee+9CG3v7EySnj7fR
-qCWRWF7w8BdLpX81u5E0y7bnqwiB/erIivoCo3UFzYrwveG1+GDSWerNwpB7eOEN
-zRTQ1oALBRdZado0TO2gxIa1knv+Cxa6+1saAEAWtQKBgQDwKz2+sGNmoukIQ5a0
-HN5iRpGjh5dAEzXIEvwo9FCcRdRYltdjWoTrDlv/pnHhWf45pl86MbyFcq27Ps+q
-HVRccA9AIJr126BkUAPU+6YoiQuB1g/ih4XhZMgMnINOZdEyMsCw6KEQ197OjgOh
-AadbbTYiCy41e4tmnrEgTQaHZwKBgQDnOuOooNgjnsuaF4RTvUyM6k2k8/dwiXxc
-O1qxfFmTB9gjH4Hs3N3mSxHdHvbWu6eVYdDTdI26PCB0XtOU5FSi7nF7IM4gU8Jj
-e8GvtMQmqOp0VtjbQdb4RFvEzHtOO4aZ+i7kOF/sa7PtDzrClusnJnYVnQoe0wsC
-hO6TmiKAlwKBgFLKlT5nD90Ry8NNiWYNjZvTN+FnnHw6IxAVe1ei4Sb963WeiiF1
-0tw01wIKHrfQjhLRh4JIIvTd04X44R2DftFez+MLWl/mliP+cVO6bE0M8SqQ4Gj2
-zvAkDdJLIfikoLjtRf+2Mc/cmrIZwqZ+K3MY8tBJimRlcmity+GWq+mBAoGACcp1
-j1NYM5HqvxiV0tHmJuVY6k4mQQ6hRGqC+ZbxWAdyAHK6FqR3hOPS2tEP1KHXg7zD
-keCSi7s2CJdnUBum9csw5OzLrZS+W2YHGoCF+bkXTFvNDOOpzZNfa2LZKcPdfDGa
-wLEeZq1czgHiFBE93ceEIoAmyI1ZHv8v9vIE2fsCgYAbR/1IxwgFX8lmbGUx0Sq6
-BPTFIbhZ3Y4J2TirjoB6mFErIdtsj4UzuBTHe49eHndI76OSOLFZ4z4k75WnTU89
-0JS6Fcw2zLa03NSWeAlOozN0UqIcJQHNaFsyGMsQXz+1hqv0UXgeyICkdKOHJMqg
-RNdhmvIWvqLFEQtbAghpPQ==
+MIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQDUU7wJsEyHdvK6
+aPfd7zhYGQODWNwT+fHzxw0c2jpbweXCHyLiHH6TwJOVfIO+yTqE0Y6I1WsGk8Lz
+SfVXKF+gzHEEzMXHw0rS+26oCl8M2/mAh/FwzOcJGTj3SVMxaxg/Yvv8w7Rkkr4c
+hL4lvWW/vDCYb8Ht585T1VwTMUnCsfztEH3ZPFgT5tBn9LOGh7IseAVOAovAzhEA
+GuxkWCu8jYPk+JliSYwb2px0d8MgvJjAGJXbRxneciZtlW9YqSOhmB5yzvhokt9i
+muhes8XaPAM3fJaibAEoEvekSr38juYd3gbwCSUiidiFFNqTjN46HSENfa95aHK2
+fOFH1RuLAgMBAAECggEBALtQ1+4QO6Oyu3bazflcZu/JuYCx7w4sjljLPXU7zQpQ
+J/s27tZd3wlIdqsFe1DgRCESotVyuoXF69IoaCopMxwv4HEkmkOeta8mJDxZUfuN
+QTM0OzuReS1ctBXs+Vj6qxyYncgje0zS7KdKMFopGc+qHZEN3x+cRjlNXHqOHA2G
+zdU1aTk/Pp0O8HdDCH+TaT8a8aXWxFxS9Z9oMq3Fb5wqbM0jJqREqJczj4vLRwSI
+lEIvridE0Y6CzTKbNFQDgLb6aAu7lvJG7TSzeI8njrh4QEJkYfkAsAESxrEptTZI
+YdI9ys6vifqY+VkSBdCJHnJ+AMvaPFYMmb9GVKx5bKECgYEA/YZhJeVyCRmbVlOi
+rvBKrHVtRNJTZ+GHJlz8CCgg0LQDLNyP4vck+Jrd1yjbS/L/S5hMQZP6ooS6Lly6
+XEJRpscxaqVG+YCEoDel7VOBUX2W7j9W+xFTBYE+MLVcIfQvLek7jeojGPb2H7Nh
+6HsCDxBA6HEFNGf3QVnKci9M2BECgYEA1mZkQXFtDTOyxjbAvViL9zh8oE67TWQS
+tYLiBvHQ5l9WclzpwZwssoQ7dceurYIXE0Ev7iS9eOzfrtML/QSxhMSRPWG3gKvo
+01lW1mWUnBi1tZjNEGenvQ61HFqgdTOGNar+sstcr7+4qt33eYVeOwetCH7PE/4z
+CoyDF7FQ9dsCgYAC2tqJNLY+B/3J0RNJ6QbOPlxGpB+wUcfV1MI5zUnhT8WhYbJ1
+GddevU+2No2Ro2Dglwx0yJfP8LKwBvdKRqzoteGGk+nisWHM9BN4QrJ4GnPypt/x
+39YRf80Ve1VYRImreK7lADf49f77iGeX2JrDVKmGdI9ccbdFEx/GfWXeIQKBgQDA
+76OIwOnB16Qpe1w3CFfsQYjlOfST0FqFvSJp3XJ/3YuNns88y63td9GKTAeFXGwn
+h6H6TFW1XHRufr1rE64sLDgHZMgdopYCm4LprL/vOM1MfhULjjwEhhe1TFjZH2TH
+JvnNK/Rcs8sa+GSblskVlfLAkl0HQNntxES0LX0NwQKBgQDydSvY8CvMXiNbeROC
+rkXqq+mUo2fr0G1mBmcG90HXDK1QXh8BpT+0NmLLW44at6GZIhik9g5Dd8gX3Ry1
+djroAXvvd+JJWYIjo6NFsd7aZXpB7o2RT4fRchIpM0yvZdz+Fthpz/0x4lTP5pqM
+i+OM06uzNgchWVzj+naS3TpqkA==
 -----END PRIVATE KEY-----
 """
 
-let CACertString = """
+private let CACertString = """
 -----BEGIN CERTIFICATE-----
-MIIC/jCCAeYCCQDpR2i4JVXCNTANBgkqhkiG9w0BAQsFADBBMRowGAYDVQQDDBFk
-ZW1vLm1sb3BzaHViLmNvbTELMAkGA1UEBhMCVVMxFjAUBgNVBAcMDVNhbiBGcmFu
-c2lzY28wHhcNMjIxMjI5MTQ1MTI4WhcNMjMxMjIwMTQ1MTI4WjBBMRowGAYDVQQD
-DBFkZW1vLm1sb3BzaHViLmNvbTELMAkGA1UEBhMCVVMxFjAUBgNVBAcMDVNhbiBG
-cmFuc2lzY28wggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDY7kQXmWQQ
-LFC0DEPPfcKNSSxPnxnSt2uraQxHZNBZ1rSC/MkQ0rZEYhUuF0b+RjvdI/qgC00A
-BkZwj5QQkdipDZJYrbp//DaRaD7r6NWKoY7N+9g+6PLymaScv4YB9lXIjzScw0SH
-C32ryCQG1kIHHAbOzv+XZTe6Ks0Po/BlhZhpBQEKkJJvVSM+W+LughAMfllGg+DC
-z0f/anajO1LK6x981E7m6dfvkJ3xDHXicI0myp14K35MVeoqIf+LyIO3h55M8+gi
-jIFktNEJKtB9dQcs9m2A80vWgmd13HYSDqEQZkCSwsgInnl2KDOkCyN6rK3g45Hi
-K8CISwekO13BAgMBAAEwDQYJKoZIhvcNAQELBQADggEBACD0nz8DKHaMUhNKb6s8
-SlezgLD2vdywNgl/eHV0J+rR6OWZ1NXm495ip0LrqO6eY9G830LrrCYaD1twsuBy
-fRYigW7S8hvr+8iX47YeLVWktm0i6tlWPd7P8yV1oYmQwT0N3OGTbZ0oY5nNVayv
-6iRrHI0Giy9KpwZFYzUUx70+keFtYI7bK8jGD+IWzOS2uZHkUrcrLtrIwi5aA/Cz
-HlP9ADuhv2pHu/6ltkqVNvFYLj2DFEFdrG8W4rLIB2pDJdyCC8Y8T7SU9GpOAAZ7
-H4rSgIcHQkf+Tv6cP4Dgp/ZKV2Qa1rOKI+7wO/3ldYR8YwVXhkt72Tr92ay6DJyi
-IcM=
+MIIC5jCCAc4CCQD1d3GZKn6D+DANBgkqhkiG9w0BAQsFADA1MRQwEgYDVQQDDAtw
+cm94eWNhdC5pbzELMAkGA1UEBhMCQ04xEDAOBgNVBAcMB0JlaWppbmcwHhcNMjMw
+MTA4MTQyMjM3WhcNMjMxMjMwMTQyMjM3WjA1MRQwEgYDVQQDDAtwcm94eWNhdC5p
+bzELMAkGA1UEBhMCQ04xEDAOBgNVBAcMB0JlaWppbmcwggEiMA0GCSqGSIb3DQEB
+AQUAA4IBDwAwggEKAoIBAQDUU7wJsEyHdvK6aPfd7zhYGQODWNwT+fHzxw0c2jpb
+weXCHyLiHH6TwJOVfIO+yTqE0Y6I1WsGk8LzSfVXKF+gzHEEzMXHw0rS+26oCl8M
+2/mAh/FwzOcJGTj3SVMxaxg/Yvv8w7Rkkr4chL4lvWW/vDCYb8Ht585T1VwTMUnC
+sfztEH3ZPFgT5tBn9LOGh7IseAVOAovAzhEAGuxkWCu8jYPk+JliSYwb2px0d8Mg
+vJjAGJXbRxneciZtlW9YqSOhmB5yzvhokt9imuhes8XaPAM3fJaibAEoEvekSr38
+juYd3gbwCSUiidiFFNqTjN46HSENfa95aHK2fOFH1RuLAgMBAAEwDQYJKoZIhvcN
+AQELBQADggEBAI9e+yRI4mQmgrZOuZd88vQP9eQzFO6F1PVTMkfHtD0kEhrNpnF5
+xKuYoYeO+81PlmDBl3SgIUKFmJbR0rl9ozbf0BE6kYa/ZRLZGVSOLlkaF8Xp7lAJ
+JZKHQdu6XGsKHl1rvaU7l0+/MJWDB5qP44UGfFXpkLA09LQPwI29f1I0OkR1uKnm
+NpKHTcIOZ0+NbqOHUsTtcKLNRBrS4VUzKaLgZ2kRFSJWCiV2zIIj730iaDHLE/in
+PAuePPkE6lGFSaCh9gkt8aDQiWRCkw0ZlaFoI0anZg4xm8lnFbgUMtI9Si9hQGyu
+kFLBxuTWDieeg4B8Rn+z8uweE2m4LAwQ62Y=
 -----END CERTIFICATE-----
 """
 
-let serverPrivateKeyString = """
+private let serverPrivateKeyString = """
 -----BEGIN RSA PRIVATE KEY-----
-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
+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
 -----END RSA PRIVATE KEY-----
 """
 
 public struct CertificateUtil {
-    let caKeyRef: UnsafeMutablePointer<EVP_PKEY> =  [UInt8](CAKeyString.utf8).withUnsafeBytes { (ptr) -> UnsafeMutablePointer<EVP_PKEY> in
+    private let caKeyRef: UnsafeMutablePointer<EVP_PKEY> =  [UInt8](CAKeyString.utf8).withUnsafeBytes { (ptr) -> UnsafeMutablePointer<EVP_PKEY> in
         let flag = 1
         let bio = CNIOBoringSSL_BIO_new_mem_buf(ptr.baseAddress!, CInt(ptr.count))!
         defer {
@@ -110,7 +109,7 @@ public struct CertificateUtil {
         }
     }
     
-    let caCertRef = [UInt8](CACertString.utf8).withUnsafeBytes { (ptr) -> OpaquePointer? in
+    private let caCertRef = [UInt8](CACertString.utf8).withUnsafeBytes { (ptr) -> OpaquePointer? in
         let bio = CNIOBoringSSL_BIO_new_mem_buf(ptr.baseAddress, CInt(ptr.count))!
         
         defer {
@@ -120,7 +119,7 @@ public struct CertificateUtil {
         return CNIOBoringSSL_PEM_read_bio_X509(bio, nil, nil, nil)
     }
     
-    let serverKeyRef: UnsafeMutablePointer<EVP_PKEY> =  [UInt8](serverPrivateKeyString.utf8).withUnsafeBytes { (ptr) -> UnsafeMutablePointer<EVP_PKEY> in
+    private let serverKeyRef: UnsafeMutablePointer<EVP_PKEY> =  [UInt8](serverPrivateKeyString.utf8).withUnsafeBytes { (ptr) -> UnsafeMutablePointer<EVP_PKEY> in
         let flag = 1
         let bio = CNIOBoringSSL_BIO_new_mem_buf(ptr.baseAddress!, CInt(ptr.count))!
         defer {
@@ -132,7 +131,9 @@ public struct CertificateUtil {
         }
     }
     
-    func addExtension(x509: OpaquePointer, nid: CInt, value: String) {
+    public init() {}
+    
+    private func addExtension(x509: OpaquePointer, nid: CInt, value: String) {
         var extensionContext = X509V3_CTX()
         
         CNIOBoringSSL_X509V3_set_ctx(&extensionContext, x509, x509, nil, nil, 0)
@@ -143,7 +144,7 @@ public struct CertificateUtil {
         CNIOBoringSSL_X509_EXTENSION_free(ext)
     }
     
-    func addExtension2(x509: OpaquePointer, nid: CInt, value: String) {
+    private func addExtension2(x509: OpaquePointer, nid: CInt, value: String) {
         var extensionContext = X509V3_CTX()
         
         CNIOBoringSSL_X509V3_set_ctx(&extensionContext, caCertRef, x509, nil, nil, 0)
@@ -154,7 +155,7 @@ public struct CertificateUtil {
         CNIOBoringSSL_X509_EXTENSION_free(ext)
     }
     
-    func generateCSR() -> OpaquePointer? {
+    private func generateCSR(forHost host: String) -> OpaquePointer? {
         
         //  let key = CNIOBoringSSL_EVP_PKEY_new()
         //  let rsa = CNIOBoringSSL_RSA_new()
@@ -170,12 +171,12 @@ public struct CertificateUtil {
         let req = CNIOBoringSSL_X509_REQ_new()
         CNIOBoringSSL_X509_REQ_set_pubkey(req, key)
         let name = CNIOBoringSSL_X509_REQ_get_subject_name(req)
-        CNIOBoringSSL_X509_NAME_add_entry_by_txt(name, "C", MBSTRING_ASC, "US", -1, -1, 0)
-        CNIOBoringSSL_X509_NAME_add_entry_by_txt(name, "ST", MBSTRING_ASC, "California", -1, -1, 0)
-        CNIOBoringSSL_X509_NAME_add_entry_by_txt(name, "L", MBSTRING_ASC, "San Fransisco", -1, -1, 0)
-        CNIOBoringSSL_X509_NAME_add_entry_by_txt(name, "O", MBSTRING_ASC, "MLopsHub", -1, -1, 0)
-        CNIOBoringSSL_X509_NAME_add_entry_by_txt(name, "OU", MBSTRING_ASC, "MlopsHub Dev", -1, -1, 0)
-        CNIOBoringSSL_X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC, "demo1.mlopshub.com", -1, -1, 0)
+        CNIOBoringSSL_X509_NAME_add_entry_by_txt(name, "C", MBSTRING_ASC, "CN", -1, -1, 0)
+        CNIOBoringSSL_X509_NAME_add_entry_by_txt(name, "ST", MBSTRING_ASC, "Beijing", -1, -1, 0)
+        CNIOBoringSSL_X509_NAME_add_entry_by_txt(name, "L", MBSTRING_ASC, "Beijing", -1, -1, 0)
+        CNIOBoringSSL_X509_NAME_add_entry_by_txt(name, "O", MBSTRING_ASC, "ProxyCat", -1, -1, 0)
+        CNIOBoringSSL_X509_NAME_add_entry_by_txt(name, "OU", MBSTRING_ASC, "ProxyCat Dev", -1, -1, 0)
+        CNIOBoringSSL_X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC, host, -1, -1, 0)
         
         CNIOBoringSSL_X509_REQ_sign(req, key, CNIOBoringSSL_EVP_sha256())
         return req
@@ -228,7 +229,7 @@ public struct CertificateUtil {
     }
     
     public func signCertificate(forHost host: String) -> NIOSSLCertificate? {
-        let csr = generateCSR()
+        let csr = generateCSR(forHost: host)
         
         let crt: OpaquePointer = CNIOBoringSSL_X509_new()!
         CNIOBoringSSL_X509_set_version(crt, 2)
@@ -257,7 +258,7 @@ public struct CertificateUtil {
         //addExtension(x509: crt, nid: NID_authority_key_identifier, value: "issuer:always")
         addExtension(x509: crt, nid: NID_basic_constraints, value: "CA:FALSE")
         addExtension(x509: crt, nid: NID_key_usage, value: "Digital Signature, Non Repudiation, Key Encipherment, Data Encipherment")
-        addExtension(x509: crt, nid: NID_subject_alt_name, value: "DNS:demo1.mlopshub.com")
+        addExtension(x509: crt, nid: NID_subject_alt_name, value: "DNS:\(host)")
         
         
         CNIOBoringSSL_X509_sign(crt, caKeyRef, CNIOBoringSSL_EVP_sha256())
@@ -271,7 +272,16 @@ public struct CertificateUtil {
         print(String(cString:bytes))
         return cert
     }
+    
+    public func getServerPrivateKey() -> NIOSSLPrivateKey? {
+        do {
+            return try NIOSSLPrivateKey(bytes: Array(serverPrivateKeyString.utf8), format: .pem)
+        } catch {
+            print("errro ---- \(error)")
+            return nil
+        }
+        
+    }
 }
-
 
 
