@@ -130,7 +130,7 @@ private extension HTTPProxyHandler {
             .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .channelInitializer { channel in
                 channel.pipeline.addHTTPClientHandlers(position: .first, leftOverBytesStrategy: .fireError).flatMap {
-                    channel.pipeline.addHandler(HTTPEchoHandler(contextReadyClosure: { context in self.remoteServerContext = context}))
+                    channel.pipeline.addHandler(HTTPEchoHandler(proxyChannelHandlerContext: context, contextReadyClosure: { context in self.remoteServerContext = context}))
                 }
 //                channel.pipeline.addHandler(HTTPRequestEncoder()).flatMap {
 //                    channel.pipeline.addHandler(ByteToMessageHandler(HTTPResponseDecoder(leftOverBytesStrategy: .forwardBytes)))
@@ -176,9 +176,11 @@ private final class HTTPEchoHandler: ChannelInboundHandler {
     public typealias InboundIn = HTTPClientResponsePart
     public typealias OutboundOut = HTTPClientRequestPart
     
+    private let proxyChannelHandlerContext: ChannelHandlerContext
     var contextReadyClosure: (ChannelHandlerContext) -> Void
     
-    init(contextReadyClosure: @escaping (ChannelHandlerContext) -> Void) {
+    init(proxyChannelHandlerContext: ChannelHandlerContext, contextReadyClosure: @escaping (ChannelHandlerContext) -> Void) {
+        self.proxyChannelHandlerContext = proxyChannelHandlerContext
         self.contextReadyClosure = contextReadyClosure
     }
     func channelRegistered(context: ChannelHandlerContext) {
@@ -188,16 +190,23 @@ private final class HTTPEchoHandler: ChannelInboundHandler {
     public func channelRead(context: ChannelHandlerContext, data: NIOAny) {
 
         let clientResponse = self.unwrapInboundIn(data)
-        
         switch clientResponse {
         case .head(let responseHead):
             print("Received status: \(responseHead.status)")
+            let _data: HTTPServerResponsePart = .head(responseHead)
+            proxyChannelHandlerContext.write(NIOAny(_data)).whenComplete { result in
+                print("----- \(result)")
+            }
         case .body(let byteBuffer):
             let string = String(buffer: byteBuffer)
             print("Received: '\(string)' back from the server.")
-        case .end:
+            let _data: HTTPServerResponsePart = .body(.byteBuffer(byteBuffer))
+            proxyChannelHandlerContext.write(NIOAny(_data))
+        case .end(let headers):
             print("Closing channel.")
             context.close(promise: nil)
+            let _data: HTTPServerResponsePart = .end(headers)
+            proxyChannelHandlerContext.writeAndFlush(NIOAny(_data))
         }
     }
 
