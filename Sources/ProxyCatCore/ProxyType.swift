@@ -7,8 +7,9 @@
 
 import Foundation
 
-public enum ProxyType {
+public let PROXY_CAT_HEADER_NAME = "ProxyCat-Proxy-Type"
+public enum ProxyType: String {
     case unknown
     case http
-    case https(isTransparent: Bool)
+    case https
 }

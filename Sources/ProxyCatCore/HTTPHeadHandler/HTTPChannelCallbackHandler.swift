@@ -72,7 +72,7 @@ extension HTTPChannelCallbackHandler: HTTPHeadChannelCallbackHandler {
                 self._configureHTTPServerPipeline(context: context)
             }
             .flatMap {
-                context.channel.pipeline.addHandler(HTTPProxyHandler(), name: HandlerName.HTTPProxyHandler.rawValue)
+                context.channel.pipeline.addHandler(HTTPProxyHandler(isHttpsProxy: false), name: HandlerName.HTTPProxyHandler.rawValue)
             }
         future
             .whenComplete { [weak self] result in

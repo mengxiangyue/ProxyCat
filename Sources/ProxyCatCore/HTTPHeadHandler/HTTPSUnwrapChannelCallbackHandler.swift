@@ -71,7 +71,7 @@ extension HTTPSUnwrapChannelCallbackHandler: HTTPHeadChannelCallbackHandler {
                 context.channel.pipeline.configureHTTPServerPipeline(withErrorHandling: true)
             }
             .flatMap {
-                context.channel.pipeline.addHandler(HTTPProxyHandler())
+                context.channel.pipeline.addHandler(HTTPProxyHandler(isHttpsProxy: true))
             }
             .whenComplete { result in
                 switch result {
