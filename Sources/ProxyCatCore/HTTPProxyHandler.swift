@@ -27,7 +27,6 @@ final class HTTPProxyHandler: ChannelInboundHandler {
     private var state: State = .idle
     private var logger: Logger = .init(label: "HTTPProxyHandler")
     private var remoteServerChannel: Channel?
-    private var remoteServerContext: ChannelHandlerContext?
     private var receivedMessagesFromClient: CircularBuffer<NIOAny> = CircularBuffer()
     
     init(isHttpsProxy: Bool) {
@@ -38,7 +37,7 @@ final class HTTPProxyHandler: ChannelInboundHandler {
         let reqPart = self.unwrapInboundIn(data)
         switch reqPart {
         case .head(let head):
-            guard remoteServerContext == nil else {
+            guard remoteServerChannel == nil else {
                 // there are some error
                 return
             }
@@ -56,47 +55,18 @@ final class HTTPProxyHandler: ChannelInboundHandler {
             connectTo(host: host, port: port, context: context)
         case .body(let body):
             let _data: HTTPClientRequestPart = .body(.byteBuffer(body))
-            if let remoteServerContext = remoteServerContext {
-                remoteServerContext.writeAndFlush(NIOAny(_data))
+            if let remoteServerChannel = remoteServerChannel {
+                remoteServerChannel.write(NIOAny(_data))
             } else {
                 receivedMessagesFromClient.append(NIOAny(_data))
             }
         case .end(let headers):
             let _data: HTTPClientRequestPart = .end(headers)
-            if let remoteServerContext = remoteServerContext {
-                remoteServerContext.writeAndFlush(NIOAny(_data))
+            if let remoteServerChannel = remoteServerChannel {
+                remoteServerChannel.writeAndFlush(NIOAny(_data))
             } else {
                 receivedMessagesFromClient.append(NIOAny(_data))
             }
-        }
-        return
-        switch reqPart {
-        case .head(let head):
-            
-//            print("HTTPProxyHandler http request: \(request.headers["Host"])")
-            print("--------HTTPProxyHandler--------- \(head)")
-            
-            self.keepAlive = head.isKeepAlive
-            
-            var responseHead = httpResponseHead(request: head, status: HTTPResponseStatus.ok)
-            if self.buffer == nil {
-                self.buffer = context.channel.allocator.buffer(capacity: 0)
-            }
-            self.buffer.clear()
-            self.buffer.writeString("hell world")
-            responseHead.headers.add(name: "content-length", value: "\(self.buffer!.readableBytes)")
-            let response = HTTPServerResponsePart.head(responseHead)
-            context.write(self.wrapOutboundOut(response), promise: nil)
-        case .body(var body):
-            print("--------HTTPProxyHandler--------- body")
-            let content = body.readString(length: body.readableBytes)
-//            print("body-->\(content)")
-            break
-        case .end:
-            print("--------HTTPProxyHandler--------- end")
-            let content = HTTPServerResponsePart.body(.byteBuffer(buffer!.slice()))
-            context.write(self.wrapOutboundOut(content), promise: nil)
-            self.completeResponse(context, trailers: nil, promise: nil)
         }
     }
     
@@ -139,7 +109,7 @@ private extension HTTPProxyHandler {
         let channelFuture = ClientBootstrap(group: context.eventLoop)
             .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .channelInitializer { channel in
-                let messageForwardHandler = HTTPEchoHandler(proxyChannelHandlerContext: context, contextReadyClosure: { context in self.remoteServerContext = context})
+                let messageForwardHandler = MessageForwardHandler(proxyChannel: context.channel)
                 if self.isHttpsProxy {
                     var tlsConfiguration = TLSConfiguration.makeClientConfiguration()
                     let sslContext = try! NIOSSLContext(configuration: tlsConfiguration)
@@ -154,7 +124,7 @@ private extension HTTPProxyHandler {
                     }
                 } else {
                     return channel.pipeline.addHTTPClientHandlers(position: .first, leftOverBytesStrategy: .fireError).flatMap {
-                        channel.pipeline.addHandler(HTTPEchoHandler(proxyChannelHandlerContext: context, contextReadyClosure: { context in self.remoteServerContext = context}))
+                        channel.pipeline.addHandler(messageForwardHandler)
                     }
                 }
             }
@@ -163,11 +133,11 @@ private extension HTTPProxyHandler {
         channelFuture.whenSuccess { channel in
             self.logger.info("Connected to \(String(describing: channel.remoteAddress?.ipAddress ?? "unknown"))")
             self.remoteServerChannel = channel
-//            while !self.receivedMessagesFromClient.isEmpty {
-                self.remoteServerContext?.writeAndFlush(self.receivedMessagesFromClient.removeFirst()).whenComplete({ result in
+            while !self.receivedMessagesFromClient.isEmpty {
+                self.remoteServerChannel?.writeAndFlush(self.receivedMessagesFromClient.removeFirst()).whenComplete({ result in
                     print("result ---- \(result)")
                 })
-//            }
+            }
         }
         channelFuture.whenFailure { error in
             self.connectFailed(error: error, context: context)
@@ -194,41 +164,35 @@ private extension HTTPProxyHandler {
 }
 
 
-private final class HTTPEchoHandler: ChannelInboundHandler {
+private final class MessageForwardHandler: ChannelInboundHandler {
     public typealias InboundIn = HTTPClientResponsePart
     public typealias OutboundOut = HTTPClientRequestPart
     
-    private let proxyChannelHandlerContext: ChannelHandlerContext
-    var contextReadyClosure: (ChannelHandlerContext) -> Void
+    private let proxyChannel: Channel
     
-    init(proxyChannelHandlerContext: ChannelHandlerContext, contextReadyClosure: @escaping (ChannelHandlerContext) -> Void) {
-        self.proxyChannelHandlerContext = proxyChannelHandlerContext
-        self.contextReadyClosure = contextReadyClosure
-    }
-    func channelRegistered(context: ChannelHandlerContext) {
-        self.contextReadyClosure(context)
+    init(proxyChannel: Channel) {
+        self.proxyChannel = proxyChannel
     }
 
     public func channelRead(context: ChannelHandlerContext, data: NIOAny) {
-
         let clientResponse = self.unwrapInboundIn(data)
         switch clientResponse {
         case .head(let responseHead):
             print("Received status: \(responseHead.status)")
             let _data: HTTPServerResponsePart = .head(responseHead)
-            proxyChannelHandlerContext.write(NIOAny(_data)).whenComplete { result in
+            proxyChannel.write(NIOAny(_data)).whenComplete { result in
                 print("----- \(result)")
             }
         case .body(let byteBuffer):
             let string = String(buffer: byteBuffer)
             print("Received: '\(string)' back from the server.")
             let _data: HTTPServerResponsePart = .body(.byteBuffer(byteBuffer))
-            proxyChannelHandlerContext.write(NIOAny(_data))
+            proxyChannel.write(NIOAny(_data))
         case .end(let headers):
             print("Closing channel.")
             context.close(promise: nil)
             let _data: HTTPServerResponsePart = .end(headers)
-            proxyChannelHandlerContext.writeAndFlush(NIOAny(_data))
+            proxyChannel.writeAndFlush(NIOAny(_data))
         }
     }
 
