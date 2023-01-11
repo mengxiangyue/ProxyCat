@@ -9,6 +9,7 @@ import NIOCore
 import NIOPosix
 import NIOHTTP1
 import Logging
+import NIOSSL
 
 final class HTTPProxyHandler: ChannelInboundHandler {
     enum State {
@@ -43,7 +44,16 @@ final class HTTPProxyHandler: ChannelInboundHandler {
             }
             let _data: HTTPClientRequestPart = .head(head)
             receivedMessagesFromClient.append(NIOAny(_data))
-            connectTo(host: "www.gov.cn", port: 80, context: context)
+            let host: String
+            let port: Int
+            if isHttpsProxy {
+                host = "www.apple.com"
+                port = 443
+            } else {
+                host = "www.gov.cn"
+                port = 80
+            }
+            connectTo(host: host, port: port, context: context)
         case .body(let body):
             let _data: HTTPClientRequestPart = .body(.byteBuffer(body))
             if let remoteServerContext = remoteServerContext {
@@ -129,23 +139,35 @@ private extension HTTPProxyHandler {
         let channelFuture = ClientBootstrap(group: context.eventLoop)
             .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .channelInitializer { channel in
-                channel.pipeline.addHTTPClientHandlers(position: .first, leftOverBytesStrategy: .fireError).flatMap {
-                    channel.pipeline.addHandler(HTTPEchoHandler(proxyChannelHandlerContext: context, contextReadyClosure: { context in self.remoteServerContext = context}))
+                let messageForwardHandler = HTTPEchoHandler(proxyChannelHandlerContext: context, contextReadyClosure: { context in self.remoteServerContext = context})
+                if self.isHttpsProxy {
+                    var tlsConfiguration = TLSConfiguration.makeClientConfiguration()
+                    let sslContext = try! NIOSSLContext(configuration: tlsConfiguration)
+                    let openSslHandler = try! NIOSSLClientHandler(context: sslContext, serverHostname: host)
+//                    channel.pipeline.addHandlers(openSslHandler).flatMap {
+//                        return context.eventLoop.makeCompletedFuture(.success(()))
+//                    }
+                    return channel.pipeline.addHandler(openSslHandler).flatMap {
+                        channel.pipeline.addHTTPClientHandlers()
+                    }.flatMap {
+                        channel.pipeline.addHandler(messageForwardHandler)
+                    }
+                } else {
+                    return channel.pipeline.addHTTPClientHandlers(position: .first, leftOverBytesStrategy: .fireError).flatMap {
+                        channel.pipeline.addHandler(HTTPEchoHandler(proxyChannelHandlerContext: context, contextReadyClosure: { context in self.remoteServerContext = context}))
+                    }
                 }
-//                channel.pipeline.addHandler(HTTPRequestEncoder()).flatMap {
-//                    channel.pipeline.addHandler(ByteToMessageHandler(HTTPResponseDecoder(leftOverBytesStrategy: .forwardBytes)))
-//                }
             }
             .connect(host: host, port: port)
 
         channelFuture.whenSuccess { channel in
             self.logger.info("Connected to \(String(describing: channel.remoteAddress?.ipAddress ?? "unknown"))")
             self.remoteServerChannel = channel
-            while !self.receivedMessagesFromClient.isEmpty {
+//            while !self.receivedMessagesFromClient.isEmpty {
                 self.remoteServerContext?.writeAndFlush(self.receivedMessagesFromClient.removeFirst()).whenComplete({ result in
                     print("result ---- \(result)")
                 })
-            }
+//            }
         }
         channelFuture.whenFailure { error in
             self.connectFailed(error: error, context: context)
