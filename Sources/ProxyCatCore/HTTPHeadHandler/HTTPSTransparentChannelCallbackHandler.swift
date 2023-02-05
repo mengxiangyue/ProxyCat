@@ -214,18 +214,6 @@ private extension HTTPSTransparentChannelCallbackHandler {
         }
     }
     
-//    private func httpErrorAndClose(context: ChannelHandlerContext) {
-//        self.upgradeState = .upgradeFailed
-//        guard let channelHandler = channelHandler else { return }
-//
-//        let headers = HTTPHeaders([("Content-Length", "0"), ("Connection", "close")])
-//        let head = HTTPResponseHead(version: .init(major: 1, minor: 1), status: .badRequest, headers: headers)
-//        context.write(channelHandler.wrapOutboundOut(.head(head)), promise: nil)
-//        context.writeAndFlush(channelHandler.wrapOutboundOut(.end(nil))).whenComplete { (_: Result<Void, Error>) in
-//            context.close(mode: .output, promise: nil)
-//        }
-//    }
-    
     private func removeDecoder(context: ChannelHandlerContext) {
         // We drop the future on the floor here as these handlers must all be in our own pipeline, and this should
         // therefore succeed fast.

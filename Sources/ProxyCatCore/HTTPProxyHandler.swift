@@ -1,10 +1,11 @@
 //
-//  File.swift
+//  HTTPProxyHandler.swift
 //  
 //
 //  Created by xiangyue on 2023/1/1.
 //
 
+import Foundation
 import NIOCore
 import NIOPosix
 import NIOHTTP1
@@ -38,20 +39,26 @@ final class HTTPProxyHandler: ChannelInboundHandler {
         switch reqPart {
         case .head(let head):
             guard remoteServerChannel == nil else {
-                // there are some error
+                // TODO: throw error
                 return
             }
+            
             let _data: HTTPClientRequestPart = .head(head)
             receivedMessagesFromClient.append(NIOAny(_data))
-            let host: String
-            let port: Int
-            if isHttpsProxy {
-                host = "www.apple.com"
-                port = 443
-            } else {
-                host = "www.gov.cn"
-                port = 80
+            
+            let components = head.headers["Host"].first?.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+            guard let first = components?.first else {
+                // TODO: throw error
+                return
             }
+            let host: String = String(first)
+            let port: Int
+            if let second = components?.last, let p = Int(second) {
+                port = p
+            } else {
+                port = proxyHostPortMap[host] ?? 80
+            }
+            self.logger.info("req >> \(host) \(port)")
             connectTo(host: host, port: port, context: context)
         case .body(let body):
             let _data: HTTPClientRequestPart = .body(.byteBuffer(body))

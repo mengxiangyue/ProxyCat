@@ -13,6 +13,19 @@ import NIOTLS
 import NIOSSL
 import Foundation
 
+let transparentHttpsHosts = ["www.baidu.com"] // TODO: update
+
+// TODO: update
+extension HTTPRequestHead {
+    var host: String? {
+        let components = uri.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+        guard let host = components.first else {
+            return nil
+        }
+        return String(host)
+    }
+}
+
 enum HTTPHeadHandleError: Error {
     case invalidHTTPMessageOrdering
     case invalidHTTPMessage
@@ -68,16 +81,20 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
     }
     
     private func setupCallBackHandler(context: ChannelHandlerContext, data: InboundIn) throws {
-        guard case .head(let head) = data else {
+        guard case .head(var head) = data else {
             throw HTTPHeadHandleError.invalidHTTPMessage
         }
 
         self.logger.info(">> \(head.method) \(head.uri) \(head.version)")
 
-        if head.method == .CONNECT {
+        if head.method == .CONNECT { // if request is https, will receive the CONNECT first
             let components = head.uri.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
             let host = components.first!  // There will always be a first.
-            if ["www.baidu.com"].contains(host) { // transprent https
+            let port = components.last ?? "443"
+            if let p = Int(port) {
+                proxyHostPortMap[String(host)] = p
+            }
+            if transparentHttpsHosts.contains(String(host)) { // transprent https
                 callBackHandler = try HTTPSTransparentChannelCallbackHandler(channelHandler: self)
             } else { // unwrap https request
                 callBackHandler = try HTTPSUnwrapChannelCallbackHandler(channelHandler: self)
