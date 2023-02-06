@@ -12,6 +12,20 @@ import NIOHTTP1
 import Logging
 import NIOSSL
 
+// TODO: move to separate file
+class RequestRecord {
+    var headers: HTTPHeaders?
+    var responseHeaders: HTTPHeaders?
+}
+
+class RecordManager {
+    static let shared = RecordManager()
+    
+    func add(record: RequestRecord) {
+        
+    }
+}
+
 final class HTTPProxyHandler: ChannelInboundHandler {
     enum State {
         case idle
@@ -27,8 +41,11 @@ final class HTTPProxyHandler: ChannelInboundHandler {
     private var isHttpsProxy: Bool
     private var state: State = .idle
     private var logger: Logger = .init(label: "HTTPProxyHandler")
+    // the channel between the proxy and the real server
     private var remoteServerChannel: Channel?
     private var receivedMessagesFromClient: CircularBuffer<NIOAny> = CircularBuffer()
+    
+    let requestRecord = RequestRecord()
     
     init(isHttpsProxy: Bool) {
         self.isHttpsProxy = isHttpsProxy
@@ -40,8 +57,11 @@ final class HTTPProxyHandler: ChannelInboundHandler {
         case .head(let head):
             guard remoteServerChannel == nil else {
                 // TODO: throw error
+                httpErrorAndClose(context: context)
                 return
             }
+            
+            requestRecord.headers = head.headers
             
             let _data: HTTPClientRequestPart = .head(head)
             receivedMessagesFromClient.append(NIOAny(_data))
@@ -49,6 +69,7 @@ final class HTTPProxyHandler: ChannelInboundHandler {
             let components = head.headers["Host"].first?.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
             guard let first = components?.first else {
                 // TODO: throw error
+                httpErrorAndClose(context: context)
                 return
             }
             let host: String = String(first)
@@ -63,14 +84,18 @@ final class HTTPProxyHandler: ChannelInboundHandler {
         case .body(let body):
             let _data: HTTPClientRequestPart = .body(.byteBuffer(body))
             if let remoteServerChannel = remoteServerChannel {
-                remoteServerChannel.write(NIOAny(_data))
+                remoteServerChannel.write(NIOAny(_data)).whenFailure { error in
+                    // TODO: should log the error
+                }
             } else {
                 receivedMessagesFromClient.append(NIOAny(_data))
             }
         case .end(let headers):
             let _data: HTTPClientRequestPart = .end(headers)
             if let remoteServerChannel = remoteServerChannel {
-                remoteServerChannel.writeAndFlush(NIOAny(_data))
+                remoteServerChannel.writeAndFlush(NIOAny(_data)).whenFailure { error in
+                    // TODO: should log the error
+                }
             } else {
                 receivedMessagesFromClient.append(NIOAny(_data))
             }
@@ -115,15 +140,12 @@ private extension HTTPProxyHandler {
         self.logger.info("Connecting to \(host):\(port)")
         let channelFuture = ClientBootstrap(group: context.eventLoop)
             .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
-            .channelInitializer { channel in
-                let messageForwardHandler = MessageForwardHandler(proxyChannel: context.channel)
+            .channelInitializer { [unowned self] channel in
+                let messageForwardHandler = MessageForwardHandler(proxyChannel: context.channel, requestRecord: self.requestRecord)
                 if self.isHttpsProxy {
-                    var tlsConfiguration = TLSConfiguration.makeClientConfiguration()
+                    let tlsConfiguration = TLSConfiguration.makeClientConfiguration()
                     let sslContext = try! NIOSSLContext(configuration: tlsConfiguration)
                     let openSslHandler = try! NIOSSLClientHandler(context: sslContext, serverHostname: host)
-//                    channel.pipeline.addHandlers(openSslHandler).flatMap {
-//                        return context.eventLoop.makeCompletedFuture(.success(()))
-//                    }
                     return channel.pipeline.addHandler(openSslHandler).flatMap {
                         channel.pipeline.addHTTPClientHandlers()
                     }.flatMap {
@@ -141,9 +163,9 @@ private extension HTTPProxyHandler {
             self.logger.info("Connected to \(String(describing: channel.remoteAddress?.ipAddress ?? "unknown"))")
             self.remoteServerChannel = channel
             while !self.receivedMessagesFromClient.isEmpty {
-                self.remoteServerChannel?.writeAndFlush(self.receivedMessagesFromClient.removeFirst()).whenComplete({ result in
-                    print("result ---- \(result)")
-                })
+                self.remoteServerChannel?.writeAndFlush(self.receivedMessagesFromClient.removeFirst()).whenFailure { error in
+                    // TODO: should log the error
+                }
             }
         }
         channelFuture.whenFailure { error in
@@ -167,6 +189,8 @@ private extension HTTPProxyHandler {
         context.writeAndFlush(self.wrapOutboundOut(.end(nil))).whenComplete { (_: Result<Void, Error>) in
             context.close(mode: .output, promise: nil)
         }
+        
+        remoteServerChannel?.close(mode: .all, promise: nil)
     }
 }
 
@@ -175,10 +199,13 @@ private final class MessageForwardHandler: ChannelInboundHandler {
     public typealias InboundIn = HTTPClientResponsePart
     public typealias OutboundOut = HTTPClientRequestPart
     
+    // the channel between the source client and proxy
     private let proxyChannel: Channel
+    private let requestRecord: RequestRecord
     
-    init(proxyChannel: Channel) {
+    init(proxyChannel: Channel, requestRecord: RequestRecord) {
         self.proxyChannel = proxyChannel
+        self.requestRecord = requestRecord
     }
 
     public func channelRead(context: ChannelHandlerContext, data: NIOAny) {
@@ -186,20 +213,25 @@ private final class MessageForwardHandler: ChannelInboundHandler {
         switch clientResponse {
         case .head(let responseHead):
             print("Received status: \(responseHead.status)")
+            requestRecord.responseHeaders = responseHead.headers
             let _data: HTTPServerResponsePart = .head(responseHead)
-            proxyChannel.write(NIOAny(_data)).whenComplete { result in
-                print("----- \(result)")
+            proxyChannel.write(NIOAny(_data)).whenFailure { error in
+                // TODO: should log the error
             }
         case .body(let byteBuffer):
             let string = String(buffer: byteBuffer)
             print("Received: '\(string)' back from the server.")
             let _data: HTTPServerResponsePart = .body(.byteBuffer(byteBuffer))
-            proxyChannel.write(NIOAny(_data))
+            proxyChannel.write(NIOAny(_data)).whenFailure { error in
+                // TODO: should log the error
+            }
         case .end(let headers):
             print("Closing channel.")
             context.close(promise: nil)
             let _data: HTTPServerResponsePart = .end(headers)
-            proxyChannel.writeAndFlush(NIOAny(_data))
+            proxyChannel.writeAndFlush(NIOAny(_data)).whenFailure { error in
+                // TODO: should log the error
+            }
         }
     }
 
