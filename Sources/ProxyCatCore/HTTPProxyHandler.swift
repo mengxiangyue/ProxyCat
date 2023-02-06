@@ -55,17 +55,6 @@ final class HTTPProxyHandler: ChannelInboundHandler {
         let reqPart = self.unwrapInboundIn(data)
         switch reqPart {
         case .head(let head):
-            guard remoteServerChannel == nil else {
-                // TODO: throw error
-                httpErrorAndClose(context: context)
-                return
-            }
-            
-            requestRecord.headers = head.headers
-            
-            let _data: HTTPClientRequestPart = .head(head)
-            receivedMessagesFromClient.append(NIOAny(_data))
-            
             let components = head.headers["Host"].first?.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
             guard let first = components?.first else {
                 // TODO: throw error
@@ -79,6 +68,20 @@ final class HTTPProxyHandler: ChannelInboundHandler {
             } else {
                 port = proxyHostPortMap[host] ?? 80
             }
+            requestRecord.headers = head.headers
+            
+            if false { // TODO: map local
+                return
+            }
+            guard remoteServerChannel == nil else {
+                // TODO: throw error
+                httpErrorAndClose(context: context)
+                return
+            }
+            
+            let _data: HTTPClientRequestPart = .head(head)
+            receivedMessagesFromClient.append(NIOAny(_data))
+            
             self.logger.info("req >> \(host) \(port)")
             connectTo(host: host, port: port, context: context)
         case .body(let body):
@@ -91,6 +94,7 @@ final class HTTPProxyHandler: ChannelInboundHandler {
                 receivedMessagesFromClient.append(NIOAny(_data))
             }
         case .end(let headers):
+            // TODO: if map local, just return the fake response data and return.
             let _data: HTTPClientRequestPart = .end(headers)
             if let remoteServerChannel = remoteServerChannel {
                 remoteServerChannel.writeAndFlush(NIOAny(_data)).whenFailure { error in
