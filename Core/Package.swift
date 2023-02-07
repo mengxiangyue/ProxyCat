@@ -4,9 +4,13 @@
 import PackageDescription
 
 let package = Package(
-    name: "ProxyCat",
+    name: "Core",
     platforms: [
         .macOS(.v10_15)
+    ],
+    products: [
+        .library(name: "ProxyCatCore", targets: ["ProxyCatCore"]),
+        .executable(name: "DemoServer", targets: ["DemoServer"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.0.0"),
@@ -23,7 +27,7 @@ let package = Package(
                     .product(name: "NIOSSL", package: "swift-nio-ssl"),
                 ]),
         .executableTarget(
-            name: "ProxyCat",
+            name: "DemoServer",
             dependencies: [
                 "ProxyCatCore",
                 .product(name: "NIOCore", package: "swift-nio"),
@@ -34,7 +38,7 @@ let package = Package(
                 .product(name: "NIOWebSocket", package: "swift-nio-ssl"),
             ]),
         .testTarget(
-            name: "ProxyCatTests",
-            dependencies: ["ProxyCat"]),
+            name: "DemoServerTests",
+            dependencies: ["DemoServer"]),
     ]
 )
