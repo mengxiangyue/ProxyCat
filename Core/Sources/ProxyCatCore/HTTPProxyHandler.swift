@@ -12,20 +12,6 @@ import NIOHTTP1
 import Logging
 import NIOSSL
 
-// TODO: move to separate file
-class RequestRecord {
-    var headers: HTTPHeaders?
-    var responseHeaders: HTTPHeaders?
-}
-
-class RecordManager {
-    static let shared = RecordManager()
-    
-    func add(record: RequestRecord) {
-        
-    }
-}
-
 final class HTTPProxyHandler: ChannelInboundHandler {
     enum State {
         case idle
@@ -66,9 +52,9 @@ final class HTTPProxyHandler: ChannelInboundHandler {
             if let second = components?.last, let p = Int(second) {
                 port = p
             } else {
-                port = proxyHostPortMap[host] ?? 80
+                port = ProxyServerConfig.shared.proxyInfoStore.proxyHostPortMap[host] ?? 80
             }
-            requestRecord.headers = head.headers
+            requestRecord.requestHeaders = head.headers
             
             if false { // TODO: map local
                 return

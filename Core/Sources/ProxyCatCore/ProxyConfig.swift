@@ -7,5 +7,8 @@
 
 import Foundation
 
-public struct ProxyConfig {
+// store some information used by Core internally
+class ProxyInfoStore {
+    // TODO: update, can't get the https port after CONNECT
+    var proxyHostPortMap: [String: Int] = [:]
 }

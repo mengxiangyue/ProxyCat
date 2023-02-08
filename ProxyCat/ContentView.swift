@@ -9,13 +9,21 @@ import SwiftUI
 
 struct ContentView: View {
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundColor(.accentColor)
-            Text("Hello, world!")
+        NavigationSplitView {
+            SidebarView()
+                .frame(minWidth: 250)
+        } detail: {
+            MainView()
+                .frame(minWidth: 400)
         }
-        .padding()
+        .frame(
+            minWidth: 600,
+            idealWidth: 1080,
+            maxWidth: .infinity,
+            minHeight: 400,
+            idealHeight: 800,
+            maxHeight: .infinity
+        )
     }
 }
 

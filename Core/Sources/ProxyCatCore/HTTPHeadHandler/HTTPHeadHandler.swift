@@ -92,7 +92,7 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
             let host = components.first!  // There will always be a first.
             let port = components.last ?? "443"
             if let p = Int(port) {
-                proxyHostPortMap[String(host)] = p
+                ProxyServerConfig.shared.proxyInfoStore.proxyHostPortMap[String(host)] = p
             }
             if transparentHttpsHosts.contains(String(host)) { // transprent https
                 callBackHandler = try HTTPSTransparentChannelCallbackHandler(channelHandler: self)

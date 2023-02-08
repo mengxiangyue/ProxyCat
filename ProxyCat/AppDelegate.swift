@@ -21,8 +21,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 //            }
 //        }
         Task {
+            ProxyServerConfig.shared.update(proxyEventListener: self)
             let proxyServer = ProxyServer()
             await proxyServer.start()
         }
     }
+}
+
+extension AppDelegate: ProxyEventListener {
+    
 }

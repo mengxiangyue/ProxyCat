@@ -10,13 +10,9 @@ import NIOPosix
 import NIOHTTP1
 import Logging
 
-// TODO: update, can't get the https port after CONNECT
-var proxyHostPortMap: [String: Int] = [:]
-
 public struct ProxyServer {
-    public init() {
-        
-    }
+    
+    public init() {}
     
     public func start() async  {
         let group = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
