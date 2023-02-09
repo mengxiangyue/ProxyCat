@@ -35,6 +35,12 @@ extension AppDelegate: ProxyEventListener {
     }
     
     func didReceive(record: RequestRecord) {
-        print(record)
+        print(record.responseStatus?.code)
+        var str = String(buffer: record.responseBody)
+        print(str)
+        
+        str = String(buffer: record.requestBody)
+        print(str)
+        
     }
 }

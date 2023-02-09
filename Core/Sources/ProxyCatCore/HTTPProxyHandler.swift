@@ -41,6 +41,7 @@ final class HTTPProxyHandler: ChannelInboundHandler {
         let reqPart = self.unwrapInboundIn(data)
         switch reqPart {
         case .head(let head):
+            requestRecord.requestHeaders = head.headers
             let components = head.headers["Host"].first?.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
             guard let first = components?.first else {
                 // TODO: throw error
@@ -71,6 +72,8 @@ final class HTTPProxyHandler: ChannelInboundHandler {
             self.logger.info("req >> \(host) \(port)")
             connectTo(host: host, port: port, context: context)
         case .body(let body):
+            var tempBuffer = body
+            requestRecord.requestBody.writeBuffer(&tempBuffer)
             let _data: HTTPClientRequestPart = .body(.byteBuffer(body))
             if let remoteServerChannel = remoteServerChannel {
                 remoteServerChannel.write(NIOAny(_data)).whenFailure { error in
@@ -202,16 +205,14 @@ private final class MessageForwardHandler: ChannelInboundHandler {
         let clientResponse = self.unwrapInboundIn(data)
         switch clientResponse {
         case .head(let responseHead):
-            print("Received status: \(responseHead.status)")
             requestRecord.responseHeaders = responseHead.headers
             requestRecord.version = responseHead.version
+            requestRecord.responseStatus = responseHead.status
             let _data: HTTPServerResponsePart = .head(responseHead)
             proxyContext.write(NIOAny(_data)).whenFailure { error in
                 // TODO: should log the error
             }
         case .body(let byteBuffer):
-            let string = String(buffer: byteBuffer)
-            print("Received: '\(string)' back from the server.")
             var tempBuffer = byteBuffer
             requestRecord.responseBody.writeBuffer(&tempBuffer)
             let _data: HTTPServerResponsePart = .body(.byteBuffer(byteBuffer))

@@ -10,10 +10,10 @@ import NIO
 import NIOHTTP1
 
 public class RequestRecord {
-    var version: HTTPVersion?
-    var requestHeaders: HTTPHeaders?
-    var responseHeaders: HTTPHeaders?
-    var responseStatus: Int?
-    var requestBody = ByteBuffer()
-    var responseBody = ByteBuffer()
+    public var version: HTTPVersion?
+    public var requestHeaders: HTTPHeaders?
+    public var responseHeaders: HTTPHeaders?
+    public var responseStatus: HTTPResponseStatus?
+    public var requestBody = ByteBuffer()
+    public var responseBody = ByteBuffer()
 }
