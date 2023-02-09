@@ -101,10 +101,6 @@ final class HTTPProxyHandler: ChannelInboundHandler {
         
         context.writeAndFlush(self.wrapOutboundOut(.end(trailers)), promise: promise)
     }
-    
-    deinit {
-        print("ffffff")
-    }
 }
 
 private func httpResponseHead(request: HTTPRequestHead, status: HTTPResponseStatus, headers: HTTPHeaders = HTTPHeaders()) -> HTTPResponseHead {
@@ -135,7 +131,7 @@ private extension HTTPProxyHandler {
         let channelFuture = ClientBootstrap(group: context.eventLoop)
             .channelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
             .channelInitializer { [unowned self] channel in
-                let messageForwardHandler = MessageForwardHandler(proxyChannel: context.channel, requestRecord: self.requestRecord)
+                let messageForwardHandler = MessageForwardHandler(proxyContext: context, requestRecord: self.requestRecord)
                 if self.isHttpsProxy {
                     let tlsConfiguration = TLSConfiguration.makeClientConfiguration()
                     let sslContext = try! NIOSSLContext(configuration: tlsConfiguration)
@@ -193,12 +189,12 @@ private final class MessageForwardHandler: ChannelInboundHandler {
     public typealias InboundIn = HTTPClientResponsePart
     public typealias OutboundOut = HTTPClientRequestPart
     
-    // the channel between the source client and proxy
-    private let proxyChannel: Channel
+    // the context between the source client and proxy
+    private let proxyContext: ChannelHandlerContext
     private let requestRecord: RequestRecord
     
-    init(proxyChannel: Channel, requestRecord: RequestRecord) {
-        self.proxyChannel = proxyChannel
+    init(proxyContext: ChannelHandlerContext, requestRecord: RequestRecord) {
+        self.proxyContext = proxyContext
         self.requestRecord = requestRecord
     }
 
@@ -210,15 +206,16 @@ private final class MessageForwardHandler: ChannelInboundHandler {
             requestRecord.responseHeaders = responseHead.headers
             requestRecord.version = responseHead.version
             let _data: HTTPServerResponsePart = .head(responseHead)
-            proxyChannel.write(NIOAny(_data)).whenFailure { error in
+            proxyContext.write(NIOAny(_data)).whenFailure { error in
                 // TODO: should log the error
             }
-        case .body(var byteBuffer):
+        case .body(let byteBuffer):
             let string = String(buffer: byteBuffer)
             print("Received: '\(string)' back from the server.")
-            requestRecord.responseBody.writeBuffer(&byteBuffer)
+            var tempBuffer = byteBuffer
+            requestRecord.responseBody.writeBuffer(&tempBuffer)
             let _data: HTTPServerResponsePart = .body(.byteBuffer(byteBuffer))
-            proxyChannel.write(NIOAny(_data)).whenFailure { error in
+            proxyContext.write(NIOAny(_data)).whenFailure { error in
                 // TODO: should log the error
             }
         case .end(let headers):
@@ -226,9 +223,16 @@ private final class MessageForwardHandler: ChannelInboundHandler {
             context.close(promise: nil)
             ProxyServerConfig.shared.proxyEventListener?.didReceive(record: requestRecord)
             let _data: HTTPServerResponsePart = .end(headers)
-            proxyChannel.writeAndFlush(NIOAny(_data)).whenFailure { error in
-                // TODO: should log the error
-            }
+            proxyContext.writeAndFlush(NIOAny(_data))
+                .whenComplete({ [unowned self] result in
+                    switch result {
+                    case .success:
+                        proxyContext.close(promise: nil)
+                    case .failure(let error):
+                        // TODO: should log the error
+                        break
+                    }
+                })
         }
     }
 
@@ -238,5 +242,6 @@ private final class MessageForwardHandler: ChannelInboundHandler {
         // As we are not really interested getting notified on success or failure we just pass nil as promise to
         // reduce allocations.
         context.close(promise: nil)
+        proxyContext.close(promise: nil)
     }
 }
