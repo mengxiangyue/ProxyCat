@@ -9,15 +9,13 @@ import Foundation
 
 class ProxyServerConfig {
     private let DUMMY_VALUE = "TRANSPARENT"
-    
-    static let shared = ProxyServerConfig()
-    
     private(set) weak var proxyEventListener: ProxyEventListener?
     
-    
-    // TODO: update, can't get the https port after CONNECT
+    // can't get the https port after CONNECT, so store it here for future use
     var proxyHostPortMap: [String: Int] = [:]
     private var transparentHttpsHosts: [String: String] = [:]
+    
+    static let shared = ProxyServerConfig()
     
     private init() {}
     

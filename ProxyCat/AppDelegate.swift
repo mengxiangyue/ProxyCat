@@ -34,7 +34,7 @@ extension AppDelegate: ProxyEventListener {
         
     }
     
-    func didReceive(record: ProxyCatCore.RequestRecord) {
-        
+    func didReceive(record: RequestRecord) {
+        print(record)
     }
 }

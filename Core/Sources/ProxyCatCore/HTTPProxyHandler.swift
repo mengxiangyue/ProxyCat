@@ -101,6 +101,10 @@ final class HTTPProxyHandler: ChannelInboundHandler {
         
         context.writeAndFlush(self.wrapOutboundOut(.end(trailers)), promise: promise)
     }
+    
+    deinit {
+        print("ffffff")
+    }
 }
 
 private func httpResponseHead(request: HTTPRequestHead, status: HTTPResponseStatus, headers: HTTPHeaders = HTTPHeaders()) -> HTTPResponseHead {
@@ -149,7 +153,7 @@ private extension HTTPProxyHandler {
             }
             .connect(host: host, port: port)
 
-        channelFuture.whenSuccess { channel in
+        channelFuture.whenSuccess { [unowned self]channel in
             self.logger.info("Connected to \(String(describing: channel.remoteAddress?.ipAddress ?? "unknown"))")
             self.remoteServerChannel = channel
             while !self.receivedMessagesFromClient.isEmpty {
@@ -204,13 +208,15 @@ private final class MessageForwardHandler: ChannelInboundHandler {
         case .head(let responseHead):
             print("Received status: \(responseHead.status)")
             requestRecord.responseHeaders = responseHead.headers
+            requestRecord.version = responseHead.version
             let _data: HTTPServerResponsePart = .head(responseHead)
             proxyChannel.write(NIOAny(_data)).whenFailure { error in
                 // TODO: should log the error
             }
-        case .body(let byteBuffer):
+        case .body(var byteBuffer):
             let string = String(buffer: byteBuffer)
             print("Received: '\(string)' back from the server.")
+            requestRecord.responseBody.writeBuffer(&byteBuffer)
             let _data: HTTPServerResponsePart = .body(.byteBuffer(byteBuffer))
             proxyChannel.write(NIOAny(_data)).whenFailure { error in
                 // TODO: should log the error
@@ -218,6 +224,7 @@ private final class MessageForwardHandler: ChannelInboundHandler {
         case .end(let headers):
             print("Closing channel.")
             context.close(promise: nil)
+            ProxyServerConfig.shared.proxyEventListener?.didReceive(record: requestRecord)
             let _data: HTTPServerResponsePart = .end(headers)
             proxyChannel.writeAndFlush(NIOAny(_data)).whenFailure { error in
                 // TODO: should log the error
