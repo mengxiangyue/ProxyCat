@@ -13,8 +13,6 @@ import NIOTLS
 import NIOSSL
 import Foundation
 
-let transparentHttpsHosts = ["www.baidu.com"] // TODO: update
-
 // TODO: update
 extension HTTPRequestHead {
     var host: String? {
@@ -81,7 +79,7 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
     }
     
     private func setupCallBackHandler(context: ChannelHandlerContext, data: InboundIn) throws {
-        guard case .head(var head) = data else {
+        guard case .head(let head) = data else {
             throw HTTPHeadHandleError.invalidHTTPMessage
         }
 
@@ -92,9 +90,9 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
             let host = components.first!  // There will always be a first.
             let port = components.last ?? "443"
             if let p = Int(port) {
-                ProxyServerConfig.shared.proxyInfoStore.proxyHostPortMap[String(host)] = p
+                ProxyServerConfig.shared.proxyHostPortMap[String(host)] = p
             }
-            if transparentHttpsHosts.contains(String(host)) { // transprent https
+            if ProxyServerConfig.shared.checkTransparentForHost(String(host)) { // transprent https
                 callBackHandler = try HTTPSTransparentChannelCallbackHandler(channelHandler: self)
             } else { // unwrap https request
                 callBackHandler = try HTTPSUnwrapChannelCallbackHandler(channelHandler: self)

@@ -52,7 +52,7 @@ final class HTTPProxyHandler: ChannelInboundHandler {
             if let second = components?.last, let p = Int(second) {
                 port = p
             } else {
-                port = ProxyServerConfig.shared.proxyInfoStore.proxyHostPortMap[host] ?? 80
+                port = ProxyServerConfig.shared.proxyHostPortMap[host] ?? 80
             }
             requestRecord.requestHeaders = head.headers
             

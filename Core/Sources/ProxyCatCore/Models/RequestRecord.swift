@@ -8,7 +8,7 @@
 import Foundation
 import NIOHTTP1
 
-class RequestRecord {
+public class RequestRecord {
     var requestHeaders: HTTPHeaders?
     var responseHeaders: HTTPHeaders?
     var responseStatus: Int?

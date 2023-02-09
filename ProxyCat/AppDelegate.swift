@@ -21,13 +21,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 //            }
 //        }
         Task {
-            ProxyServerConfig.shared.update(proxyEventListener: self)
             let proxyServer = ProxyServer()
+            proxyServer.update(proxyEventListener: self)
+            proxyServer.addTransparentHttpHost("www.baidu.com")
             await proxyServer.start()
         }
     }
 }
 
 extension AppDelegate: ProxyEventListener {
+    func didReceive(error: Error) {
+        
+    }
     
+    func didReceive(record: ProxyCatCore.RequestRecord) {
+        
+    }
 }

@@ -70,3 +70,17 @@ public struct ProxyServer {
 //        }
 //    }
 }
+
+public extension ProxyServer {
+    func update(proxyEventListener: ProxyEventListener?) {
+        ProxyServerConfig.shared.update(proxyEventListener: proxyEventListener)
+    }
+    
+    func addTransparentHttpHost(_ host: String) {
+        ProxyServerConfig.shared.addTransparentHttpHost(host)
+    }
+    
+    func removeTransparentHttpHost(_ host: String) {
+        ProxyServerConfig.shared.removeTransparentHttpHost(host)
+    }
+}
