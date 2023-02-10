@@ -98,7 +98,11 @@ extension HTTPHeadHandler: ChannelDuplexHandler {
                 callBackHandler = try HTTPSUnwrapChannelCallbackHandler(channelHandler: self)
             }
         } else {
-            callBackHandler = try HTTPChannelCallbackHandler(channelHandler: self)
+            if head.method == .GET, head.headers.first(name: "Upgrade") == "websocket" {
+                callBackHandler = try WebSocketChannelCallbackHandler(channelHandler: self)
+            } else {
+                callBackHandler = try HTTPChannelCallbackHandler(channelHandler: self)
+            }
         }
     }
     

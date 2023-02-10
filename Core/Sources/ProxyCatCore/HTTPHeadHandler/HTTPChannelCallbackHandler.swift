@@ -21,7 +21,7 @@ where ChannelHandler.InboundIn == HTTPServerRequestPart, ChannelHandler.Outbound
     
     init(
         channelHandler: ChannelHandler,
-        logger: Logger = .init(label: "tls")
+        logger: Logger = .init(label: "http-channel-callback")
     ) throws {
         self.logger = logger
         self.channelHandler = channelHandler
@@ -100,6 +100,9 @@ extension HTTPChannelCallbackHandler: HTTPHeadChannelCallbackHandler {
         let requestDecoder = HTTPRequestDecoder(leftOverBytesStrategy: upgrade == nil ? .dropBytes : .forwardBytes)
         
         var handlers: [RemovableChannelHandler] = [responseEncoder, ByteToMessageHandler(requestDecoder)]
+        //              [I] ↓↑ [O]
+        //  HTTPHeadHandler ↓↑ HTTPHeadHandler [HTTPHeadHandler]
+        // right now handlers likes this, need to add two handlers before it and some handlers after it,
         return context.pipeline.addHandlers(handlers, position: .first).flatMap {
             handlers.removeAll()
             
