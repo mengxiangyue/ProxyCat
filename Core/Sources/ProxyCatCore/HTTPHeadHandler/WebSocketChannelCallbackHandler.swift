@@ -11,6 +11,7 @@ import NIOHTTP1
 import Logging
 import NIOWebSocket
 import WebSocketKit
+import NIOSSL
 
 final class WebSocketChannelCallbackHandler<ChannelHandler: ChannelInboundHandler & RemovableChannelHandler & HTTPHeadResponseSender>
 where ChannelHandler.InboundIn == HTTPServerRequestPart, ChannelHandler.OutboundOut == HTTPServerResponsePart {
@@ -157,6 +158,15 @@ extension WebSocketChannelCallbackHandler: HTTPHeadChannelCallbackHandler {
 }
 
 private final class WebSocketMessageForwardHandler: ChannelInboundHandler {
+    func makeMaskKey() -> WebSocketMaskingKey? {
+        var bytes: [UInt8] = []
+        for _ in 0..<4 {
+            bytes.append(.random(in: .min ..< .max))
+        }
+        return WebSocketMaskingKey(bytes)
+        
+    }
+    
     typealias InboundIn = WebSocketFrame
     typealias OutboundOut = WebSocketFrame
 
@@ -164,6 +174,8 @@ private final class WebSocketMessageForwardHandler: ChannelInboundHandler {
     
     private var proxy2ServerWebSocketClient: WebSocket?
     private weak var client2ProxyContext: ChannelHandlerContext?
+    
+    private var proxy2ServerWebSocketChannel: Channel?
     
     private let websocketRecord: WebsocketRecord
     init(websocketRecord: WebsocketRecord) {
@@ -173,7 +185,9 @@ private final class WebSocketMessageForwardHandler: ChannelInboundHandler {
     func handlerAdded(context: ChannelHandlerContext) {
         self.client2ProxyContext = context
 //        connectTo(host: "121.40.165.18", port: 8800, context: context)
-        connectTo(host: "127.0.0.1", port: 9999, context: context)
+//        connectTo(host: "127.0.0.1", port: 9999, context: context)
+        connect(scheme: "ws", host: "127.0.0.1", port: 9999, context: context)
+        
     }
     
     public func channelRead(context: ChannelHandlerContext, data: NIOAny) {
@@ -189,7 +203,15 @@ private final class WebSocketMessageForwardHandler: ChannelInboundHandler {
             let text = data.readString(length: data.readableBytes) ?? ""
             websocketRecord.messages.append(WebsocketMessageContent(type: .up, data: text))
             ProxyServerConfig.shared.proxyEventListener?.didReceive(websocketRecord: self.websocketRecord)
-            proxy2ServerWebSocketClient?.send(text)
+//            proxy2ServerWebSocketClient?.send(text)
+                        
+            let buffer = context.channel.allocator.buffer(string: text)
+            let frame = WebSocketFrame(fin: true, opcode: .text, maskKey: makeMaskKey(), data: buffer)
+
+            proxy2ServerWebSocketChannel?.eventLoop.submit({
+                self.proxy2ServerWebSocketChannel?.writeAndFlush(self.wrapOutboundOut(frame))
+            })
+            
         case .binary, .continuation, .pong:
             // We ignore these frames.
             break
@@ -255,46 +277,277 @@ private final class WebSocketMessageForwardHandler: ChannelInboundHandler {
 }
 
 extension WebSocketMessageForwardHandler {
-    func connectTo(host: String, port: Int, context: ChannelHandlerContext) {
-        WebSocket.connect(to: "ws://\(host):\(port)", on: client2ProxyContext!.eventLoop) { [unowned self] ws in
-            self.proxy2ServerWebSocketClient = ws
-            ws.send("hello")
-            ws.onText { [weak self] ws, string in
-                print("receive the msg: ", string)
-                guard let `self` = self else {
-                    ws.close(promise: nil)
-                    return
+//    func connectTo(host: String, port: Int, context: ChannelHandlerContext) {
+//        WebSocket.connect(to: "ws://\(host):\(port)", on: client2ProxyContext!.eventLoop) { [unowned self] ws in
+//            self.proxy2ServerWebSocketClient = ws
+//            ws.send("hello")
+//            ws.onText { [weak self] ws, string in
+//                print("receive the msg: ", string)
+//                guard let `self` = self else {
+//                    ws.close(promise: nil)
+//                    return
+//                }
+//                self.websocketRecord.messages.append(WebsocketMessageContent(type: .down, data: string))
+//                ProxyServerConfig.shared.proxyEventListener?.didReceive(websocketRecord: self.websocketRecord)
+//                var buffer = ByteBuffer()
+//                buffer.writeString(string)
+//                let frame = WebSocketFrame(fin: true, opcode: .text, data: buffer)
+//                self.client2ProxyContext?.eventLoop.submit { [unowned self] in
+//                    self.client2ProxyContext?.writeAndFlush(NIOAny(frame)).whenFailure { error in
+//                        print("erroor", error)
+//                        self.client2ProxyContext?.close(promise: nil)
+//                        ws.close(promise: nil)
+//                    }
+//                }
+//            }
+//            ws.onClose.whenComplete { [weak self] result in
+//                self?.client2ProxyContext?.close(promise: nil)
+//                switch result {
+//                case .success(let success):
+//                    print("111", success)
+//                case .failure(let failure):
+//                    print("111", failure)
+//                }
+//            }
+//        }
+//        .whenComplete { result in
+//            switch result {
+//            case .success(let success):
+//                print("success connect")
+//            case .failure(let failure):
+//                print("failed connect", failure)
+//            }
+//        }
+//    }
+    
+//    func connectTo(host: String, port: Int, context: ChannelHandlerContext) {
+    func connect(
+        scheme: String,
+        host: String,
+        port: Int,
+        path: String = "/",
+        query: String? = nil,
+        headers: HTTPHeaders = [:],
+        context: ChannelHandlerContext
+    ) -> EventLoopFuture<Void> {
+//        assert(["ws", "wss"].contains(scheme))
+        let upgradePromise = context.eventLoop.next().makePromise(of: Void.self)
+        let group = MultiThreadedEventLoopGroup(numberOfThreads: 1) // TODO: need to update
+        let bootstrap = ClientBootstrap(group: group)
+            .channelOption(ChannelOptions.socket(SocketOptionLevel(IPPROTO_TCP), TCP_NODELAY), value: 1)
+            .channelInitializer { channel in
+                let httpHandler = HTTPInitialRequestHandler(
+                    host: host,
+                    path: path,
+                    query: query,
+                    headers: headers,
+                    upgradePromise: upgradePromise
+                )
+
+                var key: [UInt8] = []
+                for _ in 0..<16 {
+                    key.append(.random(in: .min ..< .max))
                 }
-                self.websocketRecord.messages.append(WebsocketMessageContent(type: .down, data: string))
-                ProxyServerConfig.shared.proxyEventListener?.didReceive(websocketRecord: self.websocketRecord)
-                var buffer = ByteBuffer()
-                buffer.writeString(string)
-                let frame = WebSocketFrame(fin: true, opcode: .text, data: buffer)
-                self.client2ProxyContext?.eventLoop.submit { [unowned self] in
-                    self.client2ProxyContext?.writeAndFlush(NIOAny(frame)).whenFailure { error in
-                        print("erroor", error)
-                        self.client2ProxyContext?.close(promise: nil)
-                        ws.close(promise: nil)
+                let websocketUpgrader = NIOWebSocketClientUpgrader(
+                    requestKey:  Data(key).base64EncodedString(),
+                    maxFrameSize: 1 << 14,
+                    automaticErrorHandling: true,
+                    upgradePipelineHandler: { channel, req in
+//                        return WebSocket.client(on: channel, onUpgrade: onUpgrade)
+                        self.proxy2ServerWebSocketChannel = channel
+                        return channel.pipeline.addHandler(
+                            RemoteServerReceeiveWebSocketHandler(client2ProxyContext: self.client2ProxyContext!)
+                        )
+                    }
+                )
+
+                let config: NIOHTTPClientUpgradeConfiguration = (
+                    upgraders: [websocketUpgrader],
+                    completionHandler: { context in
+                        upgradePromise.succeed(())
+                        channel.pipeline.removeHandler(httpHandler, promise: nil)
+                    }
+                )
+
+                if scheme == "wss" {
+                    do {
+                        let context = try NIOSSLContext(
+                            configuration: .makeClientConfiguration()
+                        )
+                        let tlsHandler: NIOSSLClientHandler
+                        do {
+                            tlsHandler = try NIOSSLClientHandler(context: context, serverHostname: host)
+                        } catch let error as NIOSSLExtraError where error == .cannotUseIPAddressInSNI {
+                            tlsHandler = try NIOSSLClientHandler(context: context, serverHostname: nil)
+                        }
+                        return channel.pipeline.addHandler(tlsHandler).flatMap {
+                            channel.pipeline.addHTTPClientHandlers(leftOverBytesStrategy: .forwardBytes, withClientUpgrade: config)
+                        }.flatMap {
+                            channel.pipeline.addHandler(httpHandler)
+                        }
+                    } catch {
+                        return channel.pipeline.close(mode: .all)
+                    }
+                } else {
+                    return channel.pipeline.addHTTPClientHandlers(
+                        leftOverBytesStrategy: .forwardBytes,
+                        withClientUpgrade: config
+                    ).flatMap {
+                        channel.pipeline.addHandler(httpHandler)
                     }
                 }
             }
-            ws.onClose.whenComplete { [weak self] result in
-                self?.client2ProxyContext?.close(promise: nil)
-                switch result {
-                case .success(let success):
-                    print("111", success)
-                case .failure(let failure):
-                    print("111", failure)
+
+        let connect = bootstrap.connect(host: host, port: port)
+        connect.cascadeFailure(to: upgradePromise)
+        return connect.flatMap { channel in
+            return upgradePromise.futureResult
+        }
+    }
+}
+
+
+final class HTTPInitialRequestHandler: ChannelInboundHandler, RemovableChannelHandler {
+    typealias InboundIn = HTTPClientResponsePart
+    typealias OutboundOut = HTTPClientRequestPart
+
+    let host: String
+    let path: String
+    let query: String?
+    let headers: HTTPHeaders
+    let upgradePromise: EventLoopPromise<Void>
+
+    init(host: String, path: String, query: String?, headers: HTTPHeaders, upgradePromise: EventLoopPromise<Void>) {
+        self.host = host
+        self.path = path
+        self.query = query
+        self.headers = headers
+        self.upgradePromise = upgradePromise
+    }
+
+    func channelActive(context: ChannelHandlerContext) {
+        var headers = self.headers
+        headers.add(name: "Content-Type", value: "text/plain; charset=utf-8")
+        headers.add(name: "Host", value: self.host)
+
+        var uri = self.path.hasPrefix("/") ? self.path : "/" + self.path
+        if let query = self.query {
+            uri += "?\(query)"
+        }
+        let requestHead = HTTPRequestHead(
+            version: HTTPVersion(major: 1, minor: 1),
+            method: .GET,
+            uri: uri,
+            headers: headers
+        )
+        context.write(self.wrapOutboundOut(.head(requestHead)), promise: nil)
+
+        let emptyBuffer = context.channel.allocator.buffer(capacity: 0)
+        let body = HTTPClientRequestPart.body(.byteBuffer(emptyBuffer))
+        context.write(self.wrapOutboundOut(body), promise: nil)
+
+        context.writeAndFlush(self.wrapOutboundOut(.end(nil)), promise: nil)
+    }
+
+    func channelRead(context: ChannelHandlerContext, data: NIOAny) {
+        let clientResponse = self.unwrapInboundIn(data)
+        switch clientResponse {
+        case .head(let responseHead):
+            self.upgradePromise.fail(WebSocketClient.Error.invalidResponseStatus(responseHead))
+        case .body: break
+        case .end:
+            context.close(promise: nil)
+        }
+    }
+
+    func errorCaught(context: ChannelHandlerContext, error: Error) {
+        self.upgradePromise.fail(error)
+        context.close(promise: nil)
+    }
+}
+
+
+private final class RemoteServerReceeiveWebSocketHandler: ChannelInboundHandler {
+    typealias InboundIn = WebSocketFrame
+    typealias OutboundOut = WebSocketFrame
+    private var client2ProxyContext: ChannelHandlerContext?
+
+    init(client2ProxyContext: ChannelHandlerContext?) {
+        self.client2ProxyContext = client2ProxyContext
+    }
+
+    func channelRead(context: ChannelHandlerContext, data: NIOAny) {
+        let frame = self.unwrapInboundIn(data)
+        
+        switch frame.opcode {
+        case .pong:
+            self.pong(context: context, frame: frame)
+        case .text:
+            var data = frame.unmaskedData
+            let text = data.readString(length: data.readableBytes) ?? ""
+            print("Websocket: Received \(text)")
+            client2ProxyContext?.eventLoop.submit { [unowned self] in
+                self.client2ProxyContext?.writeAndFlush(NIOAny(frame)).whenFailure { error in
+                    print("erroor", error)
+                    self.client2ProxyContext?.close(promise: nil)
+                    self.client2ProxyContext = nil
+    //                ws.close(promise: nil)
                 }
             }
-        }
-        .whenComplete { result in
-            switch result {
-            case .success(let success):
-                print("success connect")
-            case .failure(let failure):
-                print("failed connect", failure)
+        case .connectionClose:
+            client2ProxyContext?.eventLoop.submit {
+                self.client2ProxyContext?.close(promise: nil)
+                self.client2ProxyContext = nil
             }
+            context.close(promise: nil)
+        case .binary, .continuation, .ping:
+            // We ignore these frames.
+            break
+        default:
+            // Unknown frames are errors.
+            self.closeOnError(context: context)
+        }
+        
+//        self.webSocket.handle(incoming: frame)
+    }
+
+    func errorCaught(context: ChannelHandlerContext, error: Error) {
+//        let errorCode: WebSocketErrorCode
+//        if let error = error as? NIOWebSocketError {
+//            errorCode = WebSocketErrorCode(error)
+//        } else {
+//            errorCode = .unexpectedServerError
+//        }
+//        _ = webSocket.close(code: errorCode)
+//
+//        // We always forward the error on to let others see it.
+        context.fireErrorCaught(error)
+    }
+
+    func channelInactive(context: ChannelHandlerContext) {
+        let closedAbnormally = WebSocketErrorCode.unknown(1006)
+//        _ = webSocket.close(code: closedAbnormally)
+        // We always forward the error on to let others see it.
+        client2ProxyContext?.eventLoop.submit {
+            self.client2ProxyContext?.close(promise: nil)
+            self.client2ProxyContext = nil
+        }
+        
+        context.fireChannelInactive()
+    }
+    
+    private func pong(context: ChannelHandlerContext, frame: WebSocketFrame) {
+        
+    }
+    
+    private func closeOnError(context: ChannelHandlerContext) {
+        // We have hit an error, we want to close. We do that by sending a close frame and then
+        // shutting down the write side of the connection. The server will respond with a close of its own.
+        var data = context.channel.allocator.buffer(capacity: 2)
+        data.write(webSocketErrorCode: .protocolError)
+        let frame = WebSocketFrame(fin: true, opcode: .connectionClose, data: data)
+        context.write(self.wrapOutboundOut(frame)).whenComplete { (_: Result<Void, Error>) in
+            context.close(mode: .output, promise: nil)
         }
     }
 }
