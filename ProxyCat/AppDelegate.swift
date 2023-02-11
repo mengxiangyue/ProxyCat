@@ -41,6 +41,10 @@ extension AppDelegate: ProxyEventListener {
         
         str = String(buffer: record.requestBody)
         print(str)
-        
+    }
+    
+    func didReceive(websocketRecord: WebsocketRecord) {
+        print("websocket msg")
+        print(websocketRecord.messages)
     }
 }

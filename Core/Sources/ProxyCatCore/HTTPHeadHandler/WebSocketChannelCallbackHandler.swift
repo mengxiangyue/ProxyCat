@@ -53,8 +53,11 @@ extension WebSocketChannelCallbackHandler: HTTPHeadChannelCallbackHandler {
         
         self.isSetHttpHandler = true
         self.receivedMessages.append(data)
+        let websocketRecord = WebsocketRecord()
+        // TODO: // add logic
+        websocketRecord.requestHeaders = head.headers
         let promise: EventLoopPromise<Void>? = context.eventLoop.makePromise()
-        self.setupUnwrapHTTPHandlers(context: context, promise: promise)
+        self.setupUnwrapHTTPHandlers(context: context, websocketRecord: websocketRecord, promise: promise)
         
         promise?.futureResult.whenComplete { [weak self] result in
             guard let `self` = self else { return }
@@ -71,11 +74,11 @@ extension WebSocketChannelCallbackHandler: HTTPHeadChannelCallbackHandler {
         }
     }
     
-    private func setupUnwrapHTTPHandlers(context: ChannelHandlerContext, promise: EventLoopPromise<Void>? = nil) {
+    private func setupUnwrapHTTPHandlers(context: ChannelHandlerContext, websocketRecord: WebsocketRecord, promise: EventLoopPromise<Void>? = nil) {
         let upgrader = NIOWebSocketServerUpgrader(
             shouldUpgrade: { (channel: Channel, head: HTTPRequestHead) in channel.eventLoop.makeSucceededFuture(HTTPHeaders()) },
             upgradePipelineHandler: { [unowned self] (channel: Channel, _: HTTPRequestHead) in
-                channel.pipeline.addHandler(WebSocketMessageForwardHandler())
+                channel.pipeline.addHandler(WebSocketMessageForwardHandler(websocketRecord: websocketRecord))
             })
         let upgradeConfiguration: NIOHTTPServerUpgradeConfiguration = (
                         upgraders: [ upgrader ],
@@ -159,8 +162,13 @@ private final class WebSocketMessageForwardHandler: ChannelInboundHandler {
 
     private var awaitingClose: Bool = false
     
-    private var webSocketClient: WebSocket?
+    private var proxy2ServerWebSocketClient: WebSocket?
     private weak var client2ProxyContext: ChannelHandlerContext?
+    
+    private let websocketRecord: WebsocketRecord
+    init(websocketRecord: WebsocketRecord) {
+        self.websocketRecord = websocketRecord
+    }
     
     func handlerAdded(context: ChannelHandlerContext) {
         self.client2ProxyContext = context
@@ -179,7 +187,9 @@ private final class WebSocketMessageForwardHandler: ChannelInboundHandler {
         case .text:
             var data = frame.unmaskedData
             let text = data.readString(length: data.readableBytes) ?? ""
-            webSocketClient?.send(text)
+            websocketRecord.messages.append(WebsocketMessageContent(type: .up, data: text))
+            ProxyServerConfig.shared.proxyEventListener?.didReceive(websocketRecord: self.websocketRecord)
+            proxy2ServerWebSocketClient?.send(text)
         case .binary, .continuation, .pong:
             // We ignore these frames.
             break
@@ -239,22 +249,24 @@ private final class WebSocketMessageForwardHandler: ChannelInboundHandler {
     }
     
     deinit {
-        self.webSocketClient?.close(promise: nil)
-        self.webSocketClient = nil
+        self.proxy2ServerWebSocketClient?.close(promise: nil)
+        self.proxy2ServerWebSocketClient = nil
     }
 }
 
 extension WebSocketMessageForwardHandler {
     func connectTo(host: String, port: Int, context: ChannelHandlerContext) {
         WebSocket.connect(to: "ws://\(host):\(port)", on: client2ProxyContext!.eventLoop) { [unowned self] ws in
-            self.webSocketClient = ws
+            self.proxy2ServerWebSocketClient = ws
             ws.send("hello")
-            ws.onText { [weak self, unowned context] ws, string in
+            ws.onText { [weak self] ws, string in
                 print("receive the msg: ", string)
                 guard let `self` = self else {
                     ws.close(promise: nil)
                     return
                 }
+                self.websocketRecord.messages.append(WebsocketMessageContent(type: .down, data: string))
+                ProxyServerConfig.shared.proxyEventListener?.didReceive(websocketRecord: self.websocketRecord)
                 var buffer = ByteBuffer()
                 buffer.writeString(string)
                 let frame = WebSocketFrame(fin: true, opcode: .text, data: buffer)
