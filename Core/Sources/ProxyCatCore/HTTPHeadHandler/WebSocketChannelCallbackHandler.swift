@@ -188,6 +188,12 @@ private final class WebSocketMessageForwardHandler: ChannelInboundHandler {
 //        connectTo(host: "127.0.0.1", port: 9999, context: context)
         connect(scheme: "ws", host: "127.0.0.1", port: 9999, context: context)
         
+//        context.eventLoop.scheduleTask(deadline: .now() + .seconds(5)) {
+//            context.close(promise: nil)
+//        }
+        
+        print("mxy aaaaa 11111111", Unmanaged.passUnretained(context).toOpaque())
+        
     }
     
     public func channelRead(context: ChannelHandlerContext, data: NIOAny) {
@@ -224,6 +230,10 @@ private final class WebSocketMessageForwardHandler: ChannelInboundHandler {
     public func channelReadComplete(context: ChannelHandlerContext) {
         context.flush()
     }
+    
+    func channelInactive(context: ChannelHandlerContext) {
+        print("\(#function)")
+    }
 
     private func receivedClose(context: ChannelHandlerContext, frame: WebSocketFrame) {
         print("mxy ---- \(#function)")
@@ -232,6 +242,7 @@ private final class WebSocketMessageForwardHandler: ChannelInboundHandler {
         if awaitingClose {
             // Cool, we started the close and were waiting for the user. We're done.
             context.close(promise: nil)
+            proxy2ServerWebSocketChannel?.close(mode: .all, promise: nil)
         } else {
             // This is an unsolicited close. We're going to send a response frame and
             // then, when we've sent it, close up shop. We should send back the close code the remote
@@ -239,8 +250,9 @@ private final class WebSocketMessageForwardHandler: ChannelInboundHandler {
             var data = frame.unmaskedData
             let closeDataCode = data.readSlice(length: 2) ?? ByteBuffer()
             let closeFrame = WebSocketFrame(fin: true, opcode: .connectionClose, data: closeDataCode)
-            _ = context.write(self.wrapOutboundOut(closeFrame)).map { () in
+            _ = context.write(self.wrapOutboundOut(closeFrame)).map { [weak self] () in
                 context.close(promise: nil)
+                self?.proxy2ServerWebSocketChannel?.close(mode: .all, promise: nil)
             }
         }
     }
@@ -264,8 +276,9 @@ private final class WebSocketMessageForwardHandler: ChannelInboundHandler {
         var data = context.channel.allocator.buffer(capacity: 2)
         data.write(webSocketErrorCode: .protocolError)
         let frame = WebSocketFrame(fin: true, opcode: .connectionClose, data: data)
-        context.write(self.wrapOutboundOut(frame)).whenComplete { (_: Result<Void, Error>) in
+        context.write(self.wrapOutboundOut(frame)).whenComplete { [weak self] _ in
             context.close(mode: .output, promise: nil)
+            self?.proxy2ServerWebSocketChannel?.close(mode: .all, promise: nil)
         }
         awaitingClose = true
     }
@@ -332,7 +345,7 @@ extension WebSocketMessageForwardHandler {
     ) -> EventLoopFuture<Void> {
 //        assert(["ws", "wss"].contains(scheme))
         let upgradePromise = context.eventLoop.next().makePromise(of: Void.self)
-        let group = MultiThreadedEventLoopGroup(numberOfThreads: 1) // TODO: need to update
+//        let group = MultiThreadedEventLoopGroup(numberOfThreads: 1) // TODO: need to update, memory leak
         let bootstrap = ClientBootstrap(group: group)
             .channelOption(ChannelOptions.socket(SocketOptionLevel(IPPROTO_TCP), TCP_NODELAY), value: 1)
             .channelInitializer { channel in
@@ -352,7 +365,10 @@ extension WebSocketMessageForwardHandler {
                     requestKey:  Data(key).base64EncodedString(),
                     maxFrameSize: 1 << 14,
                     automaticErrorHandling: true,
-                    upgradePipelineHandler: { channel, req in
+                    upgradePipelineHandler: { [weak self] channel, req in
+                        guard let `self` = self else {
+                            return channel.eventLoop.makeSucceededVoidFuture()
+                        }
 //                        return WebSocket.client(on: channel, onUpgrade: onUpgrade)
                         self.proxy2ServerWebSocketChannel = channel
                         return channel.pipeline.addHandler(
@@ -470,7 +486,7 @@ final class HTTPInitialRequestHandler: ChannelInboundHandler, RemovableChannelHa
 private final class RemoteServerReceeiveWebSocketHandler: ChannelInboundHandler {
     typealias InboundIn = WebSocketFrame
     typealias OutboundOut = WebSocketFrame
-    private var client2ProxyContext: ChannelHandlerContext?
+    private weak var client2ProxyContext: ChannelHandlerContext?
 
     init(client2ProxyContext: ChannelHandlerContext?) {
         self.client2ProxyContext = client2ProxyContext
@@ -486,18 +502,24 @@ private final class RemoteServerReceeiveWebSocketHandler: ChannelInboundHandler 
             var data = frame.unmaskedData
             let text = data.readString(length: data.readableBytes) ?? ""
             print("Websocket: Received \(text)")
-            client2ProxyContext?.eventLoop.submit { [unowned self] in
-                self.client2ProxyContext?.writeAndFlush(NIOAny(frame)).whenFailure { error in
+            client2ProxyContext?.eventLoop.submit { [weak self] in
+                guard let `self` = self else {
+                    return
+                }
+                self.client2ProxyContext?.writeAndFlush(NIOAny(frame)).whenFailure { [weak self] error in
                     print("erroor", error)
-                    self.client2ProxyContext?.close(promise: nil)
-                    self.client2ProxyContext = nil
+                    self?.client2ProxyContext?.close(promise: nil)
     //                ws.close(promise: nil)
                 }
             }
         case .connectionClose:
+            // will retain this project, so that can use in below task closure
+            let client2ProxyContext = self.client2ProxyContext
             client2ProxyContext?.eventLoop.submit {
-                self.client2ProxyContext?.close(promise: nil)
-                self.client2ProxyContext = nil
+                client2ProxyContext?.close(promise: nil)
+            }
+            .whenComplete { result in
+                print("result", result)
             }
             context.close(promise: nil)
         case .binary, .continuation, .ping:
@@ -528,10 +550,10 @@ private final class RemoteServerReceeiveWebSocketHandler: ChannelInboundHandler 
         let closedAbnormally = WebSocketErrorCode.unknown(1006)
 //        _ = webSocket.close(code: closedAbnormally)
         // We always forward the error on to let others see it.
-        client2ProxyContext?.eventLoop.submit {
-            self.client2ProxyContext?.close(promise: nil)
-            self.client2ProxyContext = nil
-        }
+//        client2ProxyContext?.eventLoop.submit { [weak self] in
+//            self?.client2ProxyContext?.close(promise: nil)
+//            self?.client2ProxyContext = nil
+//        }
         
         context.fireChannelInactive()
     }

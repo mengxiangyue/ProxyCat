@@ -10,12 +10,14 @@ import NIOPosix
 import NIOHTTP1
 import Logging
 
+// TODO: share this group
+let group = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
 public struct ProxyServer {
     
     public init() {}
     
     public func start() async  {
-        let group = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
+        
         let bootstrap = ServerBootstrap(group: group)
             .serverChannelOption(ChannelOptions.socket(SOL_SOCKET, SO_REUSEADDR), value: 1)
             .childChannelOption(ChannelOptions.socket(SOL_SOCKET, SO_REUSEADDR), value: 1)
