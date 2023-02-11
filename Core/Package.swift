@@ -14,8 +14,9 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.0.0"),
-        .package(url: "https://github.com/apple/swift-nio-ssl.git", from: "2.23.0"),
+        .package(url: "https://github.com/apple/swift-nio-ssl.git", from: "2.0.0"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.0.0"),
+        .package(url: "https://github.com/vapor/websocket-kit", from: "2.6.1"),
     ],
     targets: [
         .target(name: "ProxyCatCore",
@@ -26,6 +27,7 @@ let package = Package(
                     .product(name: "NIOWebSocket", package: "swift-nio"),
                     .product(name: "Logging", package: "swift-log"),
                     .product(name: "NIOSSL", package: "swift-nio-ssl"),
+                    .product(name: "WebSocketKit", package: "websocket-kit"),
                 ]),
         .executableTarget(
             name: "DemoServer",
