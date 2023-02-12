@@ -45,7 +45,7 @@ extension HTTPSUnwrapChannelCallbackHandler: HTTPHeadChannelCallbackHandler {
 //                privateKey: .file("/Users/xiangyue/Documents/github-repo/swift-nio-ssl/ssl/4/server.key.pem"))
 //            )
             let certificateUtil = CertificateUtil()
-            let certificateChain = [certificateUtil.signCertificate(forHost: "*.apple.com")]
+            let certificateChain = [certificateUtil.signCertificate(forHost: "*.apple.com")] // TODO: update certificate creation logic
             sslContext = try NIOSSLContext(configuration: TLSConfiguration.makeServerConfiguration(
                 certificateChain: certificateChain.map { .certificate($0!) },
                 privateKey: .privateKey(certificateUtil.getServerPrivateKey()!))
