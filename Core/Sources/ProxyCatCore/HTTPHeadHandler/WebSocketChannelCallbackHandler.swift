@@ -197,7 +197,8 @@ private final class WebSocketMessageForwardHandler: ChannelInboundHandler {
         self.client2ProxyContext = context
 //        connectTo(host: "121.40.165.18", port: 8800, context: context)
 //        connectTo(host: "127.0.0.1", port: 9999, context: context)
-        connect(scheme: "ws", host: "127.0.0.1", port: 9999, context: context)
+//        connect(scheme: "ws", host: "127.0.0.1", port: 9999, context: context)
+        connect(scheme: "ws", host: host, port: port, context: context)
         
 //        context.eventLoop.scheduleTask(deadline: .now() + .seconds(5)) {
 //            context.close(promise: nil)
@@ -244,7 +245,6 @@ private final class WebSocketMessageForwardHandler: ChannelInboundHandler {
     }
 
     private func receivedClose(context: ChannelHandlerContext, frame: WebSocketFrame) {
-        print("mxy ---- \(#function)")
         // Handle a received close frame. In websockets, we're just going to send the close
         // frame and then close, unless we already sent our own close frame.
         if awaitingClose {
