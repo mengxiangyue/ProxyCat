@@ -9,6 +9,7 @@ import Foundation
 import NIOHTTP1
 
 public class WebsocketRecord {
+    public let id = UUID().uuidString
     public var version: HTTPVersion?
     public var requestHeaders: HTTPHeaders?
     public var responseHeaders: HTTPHeaders?

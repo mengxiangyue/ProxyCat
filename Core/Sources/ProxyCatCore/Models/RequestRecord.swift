@@ -10,6 +10,7 @@ import NIO
 import NIOHTTP1
 
 public class RequestRecord {
+    public let id = UUID().uuidString
     public var version: HTTPVersion?
     public var requestHeaders: HTTPHeaders?
     public var responseHeaders: HTTPHeaders?

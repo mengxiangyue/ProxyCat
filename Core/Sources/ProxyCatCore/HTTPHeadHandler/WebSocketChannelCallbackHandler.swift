@@ -47,10 +47,6 @@ extension WebSocketChannelCallbackHandler: HTTPHeadChannelCallbackHandler {
             return
         }
         
-        self.logger.info("\(head.method) \(head.uri) \(head.version)")
-        
-//        connectTo(host: "121.40.165.18", port: 8800, context: context)
-//        self.webSocketMessageForwardHandler.connectTo(host: "121.40.165.18", port: 8800, context: context)
         
         self.isSetHttpHandler = true
         self.receivedMessages.append(data)
@@ -58,7 +54,20 @@ extension WebSocketChannelCallbackHandler: HTTPHeadChannelCallbackHandler {
         // TODO: // add logic
         websocketRecord.requestHeaders = head.headers
         let promise: EventLoopPromise<Void>? = context.eventLoop.makePromise()
-        self.setupUnwrapHTTPHandlers(context: context, websocketRecord: websocketRecord, promise: promise)
+        let components = head.headers["Host"].first?.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+        guard let first = components?.first else {
+            // TODO: throw error
+            return
+        }
+        let host: String = String(first)
+        let port: Int
+        if let second = components?.last, let p = Int(second) {
+            port = p
+        } else {
+            port = ProxyServerConfig.shared.proxyHostPortMap[host] ?? 80
+        }
+        self.logger.info("\(head.method) \(head.uri) \(head.version) \(host) \(port)")
+        self.setupWebSocketServerUpgraderHandlers(host: host, port: port, context: context, websocketRecord: websocketRecord, promise: promise)
         
         promise?.futureResult.whenComplete { [weak self] result in
             guard let `self` = self else { return }
@@ -75,16 +84,15 @@ extension WebSocketChannelCallbackHandler: HTTPHeadChannelCallbackHandler {
         }
     }
     
-    private func setupUnwrapHTTPHandlers(context: ChannelHandlerContext, websocketRecord: WebsocketRecord, promise: EventLoopPromise<Void>? = nil) {
+    private func setupWebSocketServerUpgraderHandlers(host: String, port: Int, context: ChannelHandlerContext, websocketRecord: WebsocketRecord, promise: EventLoopPromise<Void>? = nil) {
         let upgrader = NIOWebSocketServerUpgrader(
             shouldUpgrade: { (channel: Channel, head: HTTPRequestHead) in channel.eventLoop.makeSucceededFuture(HTTPHeaders()) },
-            upgradePipelineHandler: { [unowned self] (channel: Channel, _: HTTPRequestHead) in
-                channel.pipeline.addHandler(WebSocketMessageForwardHandler(websocketRecord: websocketRecord))
+            upgradePipelineHandler: { (channel: Channel, _: HTTPRequestHead) in
+                channel.pipeline.addHandler(WebSocketMessageForwardHandler(host: host, port: port, websocketRecord: websocketRecord))
             })
         let upgradeConfiguration: NIOHTTPServerUpgradeConfiguration = (
                         upgraders: [ upgrader ],
                         completionHandler: { context in
-//                            print("aaaaaaaaa", Unmanaged.passUnretained(context).toOpaque())
                             context.pipeline.removeHandler(name: HandlerName.HTTPHeadHandler.rawValue)
                                 .whenFailure { error in
                                     // TODO:
@@ -92,14 +100,13 @@ extension WebSocketChannelCallbackHandler: HTTPHeadChannelCallbackHandler {
                         }
                     )
         
-        let future = context.pipeline.removeHandler(name: HandlerName.HTTPRequestDecoder.rawValue)
+        context.pipeline.removeHandler(name: HandlerName.HTTPRequestDecoder.rawValue)
             .flatMap {
                 context.pipeline.removeHandler(name: HandlerName.HTTPResponseEncoder.rawValue)
             }
             .flatMap {
                 self._configureHTTPServerPipeline(context: context, withServerUpgrade: upgradeConfiguration)
             }
-        future
             .whenComplete { [weak self] result in
                 switch result {
                 case .success():
@@ -177,8 +184,12 @@ private final class WebSocketMessageForwardHandler: ChannelInboundHandler {
     
     private var proxy2ServerWebSocketChannel: Channel?
     
+    private let host: String
+    private let port: Int
     private let websocketRecord: WebsocketRecord
-    init(websocketRecord: WebsocketRecord) {
+    init(host: String, port: Int, websocketRecord: WebsocketRecord) {
+        self.host = host
+        self.port = port
         self.websocketRecord = websocketRecord
     }
     
@@ -191,9 +202,6 @@ private final class WebSocketMessageForwardHandler: ChannelInboundHandler {
 //        context.eventLoop.scheduleTask(deadline: .now() + .seconds(5)) {
 //            context.close(promise: nil)
 //        }
-        
-        print("mxy aaaaa 11111111", Unmanaged.passUnretained(context).toOpaque())
-        
     }
     
     public func channelRead(context: ChannelHandlerContext, data: NIOAny) {
