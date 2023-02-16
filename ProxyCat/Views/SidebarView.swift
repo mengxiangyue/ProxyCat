@@ -8,8 +8,18 @@
 import SwiftUI
 
 struct SidebarView: View {
+    @Environment(\.injected) private var injected: DIContainer
+    
     var body: some View {
-        Text(/*@START_MENU_TOKEN@*/"Hello, World!"/*@END_MENU_TOKEN@*/)
+        VStack {
+            Divider()
+            Spacer()
+            Text("Hello, World!")
+            Spacer()
+        }
+        .onReceive(injected.appState.updates(for: \.userData.hosts)) {
+            print($0)
+        }
     }
 }
 

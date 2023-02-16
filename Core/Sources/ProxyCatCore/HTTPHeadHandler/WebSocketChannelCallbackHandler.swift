@@ -10,7 +10,6 @@ import NIO
 import NIOHTTP1
 import Logging
 import NIOWebSocket
-import WebSocketKit
 import NIOSSL
 
 final class WebSocketChannelCallbackHandler<ChannelHandler: ChannelInboundHandler & RemovableChannelHandler & HTTPHeadResponseSender>
@@ -22,7 +21,6 @@ where ChannelHandler.InboundIn == HTTPServerRequestPart, ChannelHandler.Outbound
     private var logger: Logger
     private var isSetHttpHandler = false
     private var remoteServerChannel: Channel?
-    private var webSocketClient: WebSocket?
     
     init(
         channelHandler: ChannelHandler,
@@ -179,7 +177,6 @@ private final class WebSocketMessageForwardHandler: ChannelInboundHandler {
 
     private var awaitingClose: Bool = false
     
-    private var proxy2ServerWebSocketClient: WebSocket?
     private weak var client2ProxyContext: ChannelHandlerContext?
     
     private var proxy2ServerWebSocketChannel: Channel?
@@ -292,8 +289,8 @@ private final class WebSocketMessageForwardHandler: ChannelInboundHandler {
     }
     
     deinit {
-        self.proxy2ServerWebSocketClient?.close(promise: nil)
-        self.proxy2ServerWebSocketClient = nil
+//        self.proxy2ServerWebSocketClient?.close(promise: nil)
+//        self.proxy2ServerWebSocketClient = nil
     }
 }
 
@@ -477,7 +474,8 @@ final class HTTPInitialRequestHandler: ChannelInboundHandler, RemovableChannelHa
         let clientResponse = self.unwrapInboundIn(data)
         switch clientResponse {
         case .head(let responseHead):
-            self.upgradePromise.fail(WebSocketClient.Error.invalidResponseStatus(responseHead))
+            print("Received status: \(responseHead.status)")
+//            self.upgradePromise.fail(WebSocketClient.Error.invalidResponseStatus(responseHead))
         case .body: break
         case .end:
             context.close(promise: nil)

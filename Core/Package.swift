@@ -27,7 +27,7 @@ let package = Package(
                     .product(name: "NIOWebSocket", package: "swift-nio"),
                     .product(name: "Logging", package: "swift-log"),
                     .product(name: "NIOSSL", package: "swift-nio-ssl"),
-                    .product(name: "WebSocketKit", package: "websocket-kit"),
+//                    .product(name: "WebSocketKit", package: "websocket-kit"),
                 ]),
         .executableTarget(
             name: "DemoServer",

@@ -8,6 +8,12 @@
 import SwiftUI
 
 struct ContentView: View {
+    private let container: DIContainer
+    
+    init(container: DIContainer) {
+        self.container = container
+    }
+    
     var body: some View {
         NavigationSplitView {
             SidebarView()
@@ -16,6 +22,7 @@ struct ContentView: View {
             MainView()
                 .frame(minWidth: 400)
         }
+        .inject(container)
         .frame(
             minWidth: 600,
             idealWidth: 1080,
@@ -29,6 +36,6 @@ struct ContentView: View {
 
 struct ContentView_Previews: PreviewProvider {
     static var previews: some View {
-        ContentView()
+        ContentView(container: DIContainer(appState: AppState(), interactors: .stub))
     }
 }

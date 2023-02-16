@@ -14,7 +14,7 @@ struct ProxyCatApp: App {
     
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ContentView(container: DIContainer(appState: AppState(), interactors: .stub))
         }
     }
 }
