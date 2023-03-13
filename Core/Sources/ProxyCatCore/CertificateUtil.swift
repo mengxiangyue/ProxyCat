@@ -9,9 +9,9 @@ import NIOSSL
 import CNIOBoringSSL
 
 /**
- CA 生成 https://devopscube.com/create-self-signed-certificates-openssl/
+ CA generate https://devopscube.com/create-self-signed-certificates-openssl/
  
- C 实现 https://github.com/zozs/openssl-sign-by-ca/blob/master/openssl1.1/main.c
+ C implementation https://github.com/zozs/openssl-sign-by-ca/blob/master/openssl1.1/main.c
  https://github.com/warmlab/study/blob/master/openssl/x509.c
  */
 private let CAKeyString = """

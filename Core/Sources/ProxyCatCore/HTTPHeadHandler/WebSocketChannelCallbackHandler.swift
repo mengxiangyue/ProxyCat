@@ -351,7 +351,7 @@ extension WebSocketMessageForwardHandler {
 //        assert(["ws", "wss"].contains(scheme))
         let upgradePromise = context.eventLoop.next().makePromise(of: Void.self)
 //        let group = MultiThreadedEventLoopGroup(numberOfThreads: 1) // TODO: need to update, memory leak
-        let bootstrap = ClientBootstrap(group: group)
+        let bootstrap = ClientBootstrap(group: context.eventLoop)
             .channelOption(ChannelOptions.socket(SocketOptionLevel(IPPROTO_TCP), TCP_NODELAY), value: 1)
             .channelInitializer { channel in
                 let httpHandler = HTTPInitialRequestHandler(

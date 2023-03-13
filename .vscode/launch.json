@@ -1,0 +1,22 @@
+{
+  "configurations": [
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug DemoServer (Core)",
+      "program": "${workspaceFolder:ProxyCat}/Core/.build/debug/DemoServer",
+      "args": [],
+      "cwd": "${workspaceFolder:ProxyCat}/Core",
+      "preLaunchTask": "swift: Build Debug DemoServer (Core)"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Release DemoServer (Core)",
+      "program": "${workspaceFolder:ProxyCat}/Core/.build/release/DemoServer",
+      "args": [],
+      "cwd": "${workspaceFolder:ProxyCat}/Core",
+      "preLaunchTask": "swift: Build Release DemoServer (Core)"
+    }
+  ]
+}

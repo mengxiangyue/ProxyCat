@@ -13,7 +13,6 @@ import Logging
 // TODO: share this group
 let group = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
 public struct ProxyServer {
-    
     public init() {}
     
     public func start() async  {
