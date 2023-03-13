@@ -12,6 +12,8 @@ import ProxyCatCore
 final class AppDelegate: NSObject, NSApplicationDelegate {
     static private(set) var shared: AppDelegate?
     
+    let appDIContainer = DIContainer(appState: AppState(), interactors: .stub)
+    
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppDelegate.shared = self
                 

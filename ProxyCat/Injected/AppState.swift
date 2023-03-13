@@ -12,6 +12,7 @@ struct AppState: Equatable {
     var userData = UserData()
     var system = System()
     var permissions = Permissions()
+    var proxyData = ProxyData()
 }
 
 extension AppState {
@@ -45,6 +46,13 @@ extension AppState {
 //            return pathToPermissions.appending(path: \.push)
 //        }
 //    }
+}
+
+extension AppState {
+    struct ProxyData: Equatable {
+        var hosts: [String] = []
+        var pinnedItems: [String] = []
+    }
 }
 
 func == (lhs: AppState, rhs: AppState) -> Bool {

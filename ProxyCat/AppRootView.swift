@@ -7,11 +7,16 @@
 
 import SwiftUI
 
-struct ContentView: View {
+struct AppRootView: View {
     private let container: DIContainer
     
     init(container: DIContainer) {
         self.container = container
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            container.appState.value.system.isActive = true
+            container.appState.value.userData.hosts = ["xxx"]
+        }
     }
     
     var body: some View {
@@ -36,6 +41,6 @@ struct ContentView: View {
 
 struct ContentView_Previews: PreviewProvider {
     static var previews: some View {
-        ContentView(container: DIContainer(appState: AppState(), interactors: .stub))
+        AppRootView(container: DIContainer(appState: AppState(), interactors: .stub))
     }
 }
