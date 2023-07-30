@@ -1,5 +1,5 @@
 import XCTest
-@testable import ProxyCat
+@testable import ProxyCatCore
 
 final class ProxyCatTests: XCTestCase {
     func testExample() throws {
